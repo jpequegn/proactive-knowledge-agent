@@ -1,0 +1,58 @@
+# RSS Feed Configuration for Proactive Knowledge Agent
+# Categories: tech, finance, health
+
+feeds:
+  tech:
+    - name: "Hacker News"
+      url: "https://news.ycombinator.com/rss"
+      category: "tech"
+      priority: high
+
+    - name: "TechCrunch"
+      url: "https://techcrunch.com/feed/"
+      category: "tech"
+      priority: medium
+
+    - name: "The Verge"
+      url: "https://www.theverge.com/rss/index.xml"
+      category: "tech"
+      priority: medium
+
+    - name: "Ars Technica"
+      url: "https://feeds.arstechnica.com/arstechnica/index"
+      category: "tech"
+      priority: medium
+
+  ai:
+    - name: "AI News"
+      url: "https://buttondown.email/ainews/rss"
+      category: "ai"
+      priority: high
+
+    - name: "Towards Data Science"
+      url: "https://towardsdatascience.com/feed"
+      category: "ai"
+      priority: medium
+
+  finance:
+    - name: "Bloomberg Markets"
+      url: "https://feeds.bloomberg.com/markets/news.rss"
+      category: "finance"
+      priority: high
+
+    - name: "Financial Times"
+      url: "https://www.ft.com/rss/home"
+      category: "finance"
+      priority: high
+
+  health:
+    - name: "Examine.com"
+      url: "https://examine.com/feed/"
+      category: "health"
+      priority: medium
+
+settings:
+  sync_interval_minutes: 60
+  max_articles_per_feed: 20
+  retention_days: 30
+  embedding_model: "text-embedding-3-small"

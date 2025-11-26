@@ -1,0 +1,80 @@
+# Agent Configuration for Proactive Knowledge Agent
+
+agents:
+  tech_intelligence:
+    enabled: true
+    schedule: "0 8 * * *"  # Daily at 8am
+    thresholds:
+      mention_increase: 1.5  # 50% increase triggers alert
+      new_tech_mentions: 3   # Minimum mentions for new tech
+    focus_areas:
+      - "AI/ML frameworks"
+      - "Developer tools"
+      - "Cloud infrastructure"
+      - "Programming languages"
+    output:
+      weekly_report: true
+      real_time_alerts: true
+
+  fitness_intelligence:
+    enabled: true
+    schedule: "0 7 * * *"  # Daily at 7am
+    thresholds:
+      training_load_warning: 1.3  # 30% above chronic load
+      recovery_warning: 60        # Below 60% recovery
+      fatigue_warning: 80         # Above 80 fatigue score
+    metrics:
+      - "training_load"
+      - "hrv"
+      - "sleep_quality"
+      - "fatigue"
+    output:
+      weekly_report: true
+      risk_alerts: true
+
+  finance_intelligence:
+    enabled: true
+    schedule: "0 9 * * 1-5"  # Weekdays at 9am
+    thresholds:
+      vix_warning: 25           # VIX above 25
+      drawdown_alert: 0.05      # 5% drawdown
+      correlation_warning: 0.8  # High correlation alert
+    watchlist:
+      - "SPY"
+      - "QQQ"
+      - "VIX"
+    output:
+      weekly_report: true
+      market_alerts: true
+
+  synthesis:
+    enabled: true
+    schedule: "0 18 * * 0"  # Weekly Sunday at 6pm
+    cross_dimensional:
+      - "tech_finance"    # Tech trends affecting markets
+      - "fitness_tech"    # Fitness technology innovations
+      - "stress_fitness"  # Work stress impact on training
+    output:
+      insights_report: true
+
+alerts:
+  channels:
+    - type: "console"
+      enabled: true
+    - type: "slack"
+      enabled: false
+      webhook_url: ""
+    - type: "email"
+      enabled: false
+      smtp_server: ""
+
+  batching:
+    enabled: true
+    interval_minutes: 30
+    max_per_batch: 10
+
+  levels:
+    INFO: true
+    WATCH: true
+    ACTION: true
+    URGENT: true

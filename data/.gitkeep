@@ -1,0 +1,5 @@
+# Data directory for PKA
+# This directory stores:
+# - PostgreSQL data (if local)
+# - Cached embeddings
+# - Generated reports
