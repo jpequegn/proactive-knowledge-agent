@@ -1,7 +1,7 @@
 """Embedding generation service for semantic search."""
 
 import asyncio
-from typing import Sequence
+from collections.abc import Sequence
 
 import structlog
 from openai import AsyncOpenAI

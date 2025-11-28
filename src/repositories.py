@@ -1,6 +1,5 @@
 """Repository pattern for data access."""
 
-from datetime import datetime, timezone
 from typing import Any
 
 import asyncpg
@@ -242,7 +241,10 @@ class ArticleRepository:
 
     async def get_categories(self) -> list[str]:
         """Get list of unique categories."""
-        query = "SELECT DISTINCT category FROM articles WHERE category IS NOT NULL ORDER BY category"
+        query = """
+            SELECT DISTINCT category FROM articles
+            WHERE category IS NOT NULL ORDER BY category
+        """
         rows = await self.db.fetch(query)
         return [row["category"] for row in rows]
 

@@ -4,7 +4,7 @@ from pathlib import Path
 from typing import Any
 
 import yaml
-from pydantic import BaseModel, Field
+from pydantic import BaseModel
 from pydantic_settings import BaseSettings
 
 
@@ -42,9 +42,7 @@ class Settings(BaseSettings):
     config_dir: Path = Path("config")
     data_dir: Path = Path("data")
 
-    class Config:
-        env_file = ".env"
-        env_file_encoding = "utf-8"
+    model_config = {"env_file": ".env", "env_file_encoding": "utf-8"}
 
 
 def load_feeds_config(config_path: Path | None = None) -> dict[str, Any]:

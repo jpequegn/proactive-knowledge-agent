@@ -1,12 +1,17 @@
 """CLI for Proactive Knowledge Agent."""
 
+from __future__ import annotations
+
 import asyncio
-from datetime import datetime
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import click
 from rich.console import Console
 from rich.table import Table
+
+if TYPE_CHECKING:
+    from src.models import SyncReport
 
 console = Console()
 
@@ -318,10 +323,8 @@ def search(
     asyncio.run(_search())
 
 
-def _display_sync_report(report: "SyncReport") -> None:
+def _display_sync_report(report: SyncReport) -> None:
     """Display sync report as rich table."""
-    from src.models import SyncReport
-
     table = Table(title="Feed Sync Results")
     table.add_column("Feed")
     table.add_column("Status")

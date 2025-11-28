@@ -1,7 +1,8 @@
 """Database connection and operations for PKA."""
 
+from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
-from typing import Any, AsyncIterator
+from typing import Any
 
 import asyncpg
 import structlog

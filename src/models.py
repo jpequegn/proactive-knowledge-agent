@@ -1,10 +1,9 @@
 """Data models for PKA."""
 
+import hashlib
 from datetime import datetime
-from typing import Any
 
 from pydantic import BaseModel, Field, computed_field
-import hashlib
 
 
 class Article(BaseModel):

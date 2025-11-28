@@ -2,8 +2,7 @@
 
 import asyncio
 import time
-from datetime import datetime, timezone
-from email.utils import parsedate_to_datetime
+from datetime import UTC, datetime
 from typing import Any
 
 import feedparser
@@ -131,12 +130,12 @@ class RSSProcessor:
             published = None
             if "published_parsed" in entry and entry.published_parsed:
                 try:
-                    published = datetime(*entry.published_parsed[:6], tzinfo=timezone.utc)
+                    published = datetime(*entry.published_parsed[:6], tzinfo=UTC)
                 except (TypeError, ValueError):
                     pass
             elif "updated_parsed" in entry and entry.updated_parsed:
                 try:
-                    published = datetime(*entry.updated_parsed[:6], tzinfo=timezone.utc)
+                    published = datetime(*entry.updated_parsed[:6], tzinfo=UTC)
                 except (TypeError, ValueError):
                     pass
 
@@ -181,7 +180,7 @@ class RSSProcessor:
 
     async def fetch_all_feeds(self) -> tuple[list[Article], SyncReport]:
         """Fetch all configured feeds."""
-        report = SyncReport(started_at=datetime.now(timezone.utc))
+        report = SyncReport(started_at=datetime.now(UTC))
         all_articles: list[Article] = []
 
         # Fetch feeds concurrently with semaphore to limit parallelism
@@ -207,7 +206,7 @@ class RSSProcessor:
             report.feeds_processed += 1
             report.articles_found += fetch_result.articles_found
 
-        report.completed_at = datetime.now(timezone.utc)
+        report.completed_at = datetime.now(UTC)
 
         logger.info(
             "Feed sync completed",
@@ -220,7 +219,9 @@ class RSSProcessor:
         return all_articles, report
 
 
-async def sync_feeds(config_path: str | None = None) -> tuple[list[Article], SyncReport]:
+async def sync_feeds(
+    config_path: str | None = None,
+) -> tuple[list[Article], SyncReport]:
     """Convenience function to sync all feeds from config."""
     from pathlib import Path
 
