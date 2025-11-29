@@ -82,3 +82,121 @@ class SyncReport(BaseModel):
             return 0
         successful = sum(1 for r in self.results if r.success)
         return successful / self.feeds_processed
+
+
+# ============================================================================
+# Fitness Models
+# ============================================================================
+
+
+class Activity(BaseModel):
+    """Represents a fitness activity from Strava."""
+
+    id: int | None = None
+    external_id: str
+    name: str
+    activity_type: str
+    sport_type: str | None = None
+    start_date: datetime
+    distance_meters: float = 0
+    moving_time_seconds: int = 0
+    elapsed_time_seconds: int = 0
+    total_elevation_gain: float = 0
+    avg_speed: float | None = None
+    max_speed: float | None = None
+    avg_hr: int | None = None
+    max_hr: int | None = None
+    avg_power: int | None = None
+    max_power: int | None = None
+    calories: int | None = None
+    suffer_score: int | None = None
+    tss: float | None = None  # Training Stress Score
+
+    @property
+    def distance_km(self) -> float:
+        """Get distance in kilometers."""
+        return self.distance_meters / 1000
+
+    @property
+    def distance_miles(self) -> float:
+        """Get distance in miles."""
+        return self.distance_meters / 1609.344
+
+    @property
+    def pace_per_km(self) -> str | None:
+        """Get pace in min/km format for running activities."""
+        if self.distance_meters == 0 or self.moving_time_seconds == 0:
+            return None
+        pace_seconds = self.moving_time_seconds / (self.distance_meters / 1000)
+        minutes = int(pace_seconds // 60)
+        seconds = int(pace_seconds % 60)
+        return f"{minutes}:{seconds:02d}"
+
+    @property
+    def duration_formatted(self) -> str:
+        """Get duration in HH:MM:SS format."""
+        hours = self.moving_time_seconds // 3600
+        minutes = (self.moving_time_seconds % 3600) // 60
+        seconds = self.moving_time_seconds % 60
+        if hours > 0:
+            return f"{hours}:{minutes:02d}:{seconds:02d}"
+        return f"{minutes}:{seconds:02d}"
+
+
+class ActivityMetrics(BaseModel):
+    """Training load metrics calculated from activities."""
+
+    date: datetime | None = None
+    atl: float = 0  # Acute Training Load (7-day)
+    ctl: float = 0  # Chronic Training Load (42-day)
+    tsb: float = 0  # Training Stress Balance (form)
+    daily_tss: float = 0  # Total TSS for the day
+
+    @property
+    def form_status(self) -> str:
+        """Get training form status based on TSB."""
+        if self.tsb > 25:
+            return "Fresh"
+        elif self.tsb > 5:
+            return "Recovered"
+        elif self.tsb > -10:
+            return "Neutral"
+        elif self.tsb > -30:
+            return "Tired"
+        else:
+            return "Very Fatigued"
+
+    @property
+    def injury_risk(self) -> str:
+        """Estimate injury risk based on ATL/CTL ratio."""
+        if self.ctl == 0:
+            return "Unknown"
+        ratio = self.atl / self.ctl
+        if ratio > 1.5:
+            return "High"
+        elif ratio > 1.3:
+            return "Moderate"
+        elif ratio > 1.1:
+            return "Low"
+        else:
+            return "Very Low"
+
+
+class FitnessSyncResult(BaseModel):
+    """Result of syncing fitness data."""
+
+    started_at: datetime
+    completed_at: datetime | None = None
+    success: bool = True
+    activities_fetched: int = 0
+    activities_new: int = 0
+    activities_updated: int = 0
+    errors: list[str] = Field(default_factory=list)
+    activities: list[Activity] = Field(default_factory=list)
+
+    @property
+    def duration_seconds(self) -> float:
+        """Calculate total duration in seconds."""
+        if self.completed_at is None:
+            return 0
+        return (self.completed_at - self.started_at).total_seconds()
