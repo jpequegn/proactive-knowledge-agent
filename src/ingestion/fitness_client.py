@@ -132,7 +132,7 @@ class StravaClient:
         self.auth = auth
         self._client: httpx.AsyncClient | None = None
 
-    async def __aenter__(self) -> "StravaClient":
+    async def __aenter__(self) -> StravaClient:
         self._client = httpx.AsyncClient(
             base_url=STRAVA_API_BASE,
             timeout=30.0,
@@ -297,7 +297,8 @@ class TrainingMetricsCalculator:
             # Estimate resting HR
             rest_hr = 60
             hr_reserve = max_hr - rest_hr
-            intensity = (activity.avg_hr - rest_hr) / hr_reserve if hr_reserve > 0 else 0.5
+            hr_intensity = (activity.avg_hr - rest_hr) / hr_reserve
+            intensity = hr_intensity if hr_reserve > 0 else 0.5
             intensity = max(0.3, min(1.0, intensity))
 
             # TSS approximation: duration * intensity^2 * 100
@@ -323,15 +324,23 @@ class TrainingMetricsCalculator:
         values: list[float],
         decay_days: int,
     ) -> list[float]:
-        """Calculate exponential moving average with given decay constant."""
+        """
+        Calculate exponential moving average with given decay constant.
+
+        Uses the standard training load formula:
+        EMA_today = TSS_today * (1/tau) + EMA_yesterday * (1 - 1/tau)
+
+        Where tau is the decay constant (7 for ATL, 42 for CTL).
+        """
         if not values:
             return []
 
-        decay = 1 - (1 / decay_days)
-        ema = [values[0]]
+        alpha = 1 / decay_days
+        decay = 1 - alpha
+        ema = [values[0] * alpha]
 
         for i in range(1, len(values)):
-            ema.append(values[i] + decay * ema[i - 1])
+            ema.append(values[i] * alpha + decay * ema[i - 1])
 
         return ema
 

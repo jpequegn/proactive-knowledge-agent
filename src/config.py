@@ -38,6 +38,10 @@ class Settings(BaseSettings):
     # OpenAI
     openai_api_key: str = ""
 
+    # Strava
+    strava_client_id: str | None = None
+    strava_client_secret: str | None = None
+
     # Paths
     config_dir: Path = Path("config")
     data_dir: Path = Path("data")
