@@ -114,8 +114,72 @@ CREATE INDEX IF NOT EXISTS articles_published_idx ON articles (published DESC);
 """
 
 
+ACTIVITIES_SCHEMA = """
+-- Fitness activities from Strava
+CREATE TABLE IF NOT EXISTS activities (
+    id SERIAL PRIMARY KEY,
+    external_id TEXT UNIQUE NOT NULL,
+    name TEXT NOT NULL,
+    activity_type TEXT NOT NULL,
+    sport_type TEXT,
+    start_date TIMESTAMPTZ NOT NULL,
+    distance_meters FLOAT DEFAULT 0,
+    moving_time_seconds INT DEFAULT 0,
+    elapsed_time_seconds INT DEFAULT 0,
+    total_elevation_gain FLOAT DEFAULT 0,
+    avg_speed FLOAT,
+    max_speed FLOAT,
+    avg_hr INT,
+    max_hr INT,
+    avg_power INT,
+    max_power INT,
+    calories INT,
+    suffer_score INT,
+    tss FLOAT,
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- Index for date range queries
+CREATE INDEX IF NOT EXISTS activities_start_date_idx
+ON activities (start_date DESC);
+
+-- Index for activity type filtering
+CREATE INDEX IF NOT EXISTS activities_type_idx
+ON activities (activity_type);
+
+-- Daily fitness metrics
+CREATE TABLE IF NOT EXISTS fitness_metrics (
+    id SERIAL PRIMARY KEY,
+    date DATE UNIQUE NOT NULL,
+    daily_tss FLOAT DEFAULT 0,
+    atl FLOAT DEFAULT 0,
+    ctl FLOAT DEFAULT 0,
+    tsb FLOAT DEFAULT 0,
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- Index for date lookups
+CREATE INDEX IF NOT EXISTS fitness_metrics_date_idx
+ON fitness_metrics (date DESC);
+
+-- Strava tokens storage
+CREATE TABLE IF NOT EXISTS strava_tokens (
+    id SERIAL PRIMARY KEY,
+    athlete_id TEXT UNIQUE NOT NULL,
+    access_token TEXT NOT NULL,
+    refresh_token TEXT NOT NULL,
+    expires_at INT NOT NULL,
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+"""
+
+
 async def init_schema(db: Database) -> None:
     """Initialize database schema."""
     async with db.transaction() as conn:
         await conn.execute(ARTICLES_SCHEMA)
+        await conn.execute(ACTIVITIES_SCHEMA)
     logger.info("Database schema initialized")
