@@ -192,7 +192,61 @@ class FitnessSyncResult(BaseModel):
     activities_new: int = 0
     activities_updated: int = 0
     errors: list[str] = Field(default_factory=list)
-    activities: list[Activity] = Field(default_factory=list)
+    @property
+    def duration_seconds(self) -> float:
+        """Calculate total duration in seconds."""
+        if self.completed_at is None:
+            return 0
+        return (self.completed_at - self.started_at).total_seconds()
+
+
+# ============================================================================
+# Market Models
+# ============================================================================
+
+
+class MarketOHLCV(BaseModel):
+    """Represents a single day of OHLCV data for a symbol."""
+
+    symbol: str
+    date: datetime
+    open: float
+    high: float
+    low: float
+    close: float
+    volume: int
+    adjusted_close: float | None = None
+
+    @computed_field
+    @property
+    def change_percent(self) -> float | None:
+        """Calculate percentage change from open to close."""
+        if self.open == 0:
+            return None
+        return ((self.close - self.open) / self.open) * 100
+
+
+class MarketIndicator(BaseModel):
+    """Represents a calculated technical indicator."""
+
+    symbol: str
+    date: datetime
+    name: str  # e.g., "SMA_20", "RSI_14"
+    value: float
+
+
+class MarketSyncResult(BaseModel):
+    """Result of syncing market data."""
+
+    started_at: datetime
+    completed_at: datetime | None = None
+    success: bool = True
+    symbols_processed: int = 0
+    data_points_fetched: int = 0
+    errors: list[str] = Field(default_factory=list)
+    # We might not want to return ALL data in the result object if it's huge,
+    # but for now it follows the pattern.
+    data: list[MarketOHLCV] = Field(default_factory=list)
 
     @property
     def duration_seconds(self) -> float:
