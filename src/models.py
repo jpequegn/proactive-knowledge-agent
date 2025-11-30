@@ -192,6 +192,8 @@ class FitnessSyncResult(BaseModel):
     activities_new: int = 0
     activities_updated: int = 0
     errors: list[str] = Field(default_factory=list)
+    activities: list[Activity] = Field(default_factory=list)
+
     @property
     def duration_seconds(self) -> float:
         """Calculate total duration in seconds."""
@@ -234,6 +236,17 @@ class MarketIndicator(BaseModel):
     name: str  # e.g., "SMA_20", "RSI_14"
     value: float
 
+
+class MarketSyncResult(BaseModel):
+    """Result of syncing market data."""
+
+    started_at: datetime
+    completed_at: datetime | None = None
+    success: bool = True
+    symbols_processed: int = 0
+    data_points_fetched: int = 0
+    errors: list[str] = Field(default_factory=list)
+    data: list[MarketOHLCV] = Field(default_factory=list)
 
     @property
     def duration_seconds(self) -> float:

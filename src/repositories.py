@@ -389,6 +389,17 @@ class MarketRepository:
             for row in reversed(rows)
         ]
 
+    async def count(self) -> int:
+        """Count total market data points."""
+        query = "SELECT COUNT(*) FROM market_ohlcv"
+        return await self.db.fetchval(query)
+
+    async def get_symbols(self) -> list[str]:
+        """Get list of unique symbols."""
+        query = "SELECT DISTINCT symbol FROM market_ohlcv ORDER BY symbol"
+        rows = await self.db.fetch(query)
+        return [row["symbol"] for row in rows]
+
 
 class PodcastRepository:
     """Repository for podcast episodes."""
@@ -467,6 +478,24 @@ class PodcastRepository:
         rows = await self.db.fetch(query, *params)
         return [self._row_to_episode(row) for row in rows]
 
+    async def search_by_text(
+        self,
+        search_text: str,
+        limit: int = 20,
+    ) -> list[PodcastEpisode]:
+        """Search episodes by text (title, summary)."""
+        query = """
+        SELECT external_id, title, podcast_name, published,
+               summary, content, duration_seconds, url,
+               topics, entities
+        FROM podcast_episodes
+        WHERE title ILIKE $1 OR summary ILIKE $1
+        ORDER BY published DESC
+        LIMIT $2
+        """
+        rows = await self.db.fetch(query, f"%{search_text}%", limit)
+        return [self._row_to_episode(row) for row in rows]
+
     async def search_similar(
         self,
         embedding: list[float],
@@ -490,6 +519,17 @@ class PodcastRepository:
             (self._row_to_episode(row), row["similarity"])
             for row in rows
         ]
+
+    async def count(self) -> int:
+        """Count total episodes."""
+        query = "SELECT COUNT(*) FROM podcast_episodes"
+        return await self.db.fetchval(query)
+
+    async def get_podcasts(self) -> list[str]:
+        """Get list of unique podcast names."""
+        query = "SELECT DISTINCT podcast_name FROM podcast_episodes ORDER BY podcast_name"
+        rows = await self.db.fetch(query)
+        return [row["podcast_name"] for row in rows]
 
     def _row_to_episode(self, row: asyncpg.Record) -> PodcastEpisode:
         """Convert database row to PodcastEpisode model."""
