@@ -55,6 +55,24 @@ def init(ctx: click.Context) -> None:
     asyncio.run(_init())
 
 
+@main.group()
+def daemon() -> None:
+    """Manage the background daemon process."""
+
+
+@daemon.command("start")
+def daemon_start() -> None:
+    """Start the background scheduler."""
+    from src.daemon.scheduler import SchedulerService
+
+    service = SchedulerService()
+    try:
+        # Using asyncio.run to handle the async run_forever loop
+        asyncio.run(service.run_forever())
+    except KeyboardInterrupt:
+        pass
+
+
 @main.command()
 @click.option(
     "--dry-run",
