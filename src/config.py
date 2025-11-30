@@ -45,6 +45,7 @@ class Settings(BaseSettings):
     # Paths
     config_dir: Path = Path("config")
     data_dir: Path = Path("data")
+    p3_duckdb_path: Path | None = None
 
     model_config = {"env_file": ".env", "env_file_encoding": "utf-8"}
 

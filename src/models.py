@@ -235,18 +235,59 @@ class MarketIndicator(BaseModel):
     value: float
 
 
-class MarketSyncResult(BaseModel):
-    """Result of syncing market data."""
+    @property
+    def duration_seconds(self) -> float:
+        """Calculate total duration in seconds."""
+        if self.completed_at is None:
+            return 0
+        return (self.completed_at - self.started_at).total_seconds()
+
+
+# ============================================================================
+# Podcast Models
+# ============================================================================
+
+
+class PodcastEpisode(BaseModel):
+    """Represents a podcast episode."""
+
+    id: str  # Unique identifier from source
+    title: str
+    podcast_name: str
+    published_date: datetime
+    summary: str | None = None
+    content: str | None = None
+    duration_seconds: int | None = None
+    url: str | None = None
+    topics: list[str] = Field(default_factory=list)
+    entities: list[str] = Field(default_factory=list)
+
+    @computed_field
+    @property
+    def text_for_embedding(self) -> str:
+        """Generate text content for embedding generation."""
+        parts = [
+            f"Podcast: {self.podcast_name}",
+            f"Title: {self.title}",
+        ]
+        if self.summary:
+            parts.append(f"Summary: {self.summary}")
+        if self.topics:
+            parts.append(f"Topics: {', '.join(self.topics)}")
+
+        return "\n".join(parts)
+
+
+class PodcastSyncResult(BaseModel):
+    """Result of syncing podcast data."""
 
     started_at: datetime
     completed_at: datetime | None = None
     success: bool = True
-    symbols_processed: int = 0
-    data_points_fetched: int = 0
+    episodes_processed: int = 0
+    episodes_new: int = 0
     errors: list[str] = Field(default_factory=list)
-    # We might not want to return ALL data in the result object if it's huge,
-    # but for now it follows the pattern.
-    data: list[MarketOHLCV] = Field(default_factory=list)
+    episodes: list[PodcastEpisode] = Field(default_factory=list)
 
     @property
     def duration_seconds(self) -> float:
