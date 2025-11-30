@@ -66,80 +66,134 @@ def init(ctx: click.Context) -> None:
     is_flag=True,
     help="Skip embedding generation",
 )
+@click.option("--rss", is_flag=True, help="Sync only RSS feeds")
+@click.option("--market", is_flag=True, help="Sync only Market data")
+@click.option("--podcast", is_flag=True, help="Sync only Podcast data")
 @click.pass_context
-def sync(ctx: click.Context, dry_run: bool, no_embeddings: bool) -> None:
-    """Sync RSS feeds and store articles."""
+def sync(
+    ctx: click.Context,
+    dry_run: bool,
+    no_embeddings: bool,
+    rss: bool,
+    market: bool,
+    podcast: bool,
+) -> None:
+    """Sync data from enabled sources."""
     from src.config import Settings, get_all_feeds, get_feed_settings, load_feeds_config
     from src.database import Database
     from src.ingestion.embeddings import EmbeddingService
+    from src.ingestion.market_client import sync_market_data
+    from src.ingestion.podcast_bridge import sync_podcast_data
     from src.ingestion.rss_processor import RSSProcessor
-    from src.repositories import ArticleRepository
+    from src.repositories import (
+        ArticleRepository,
+        MarketRepository,
+        PodcastRepository,
+    )
 
     config_path = ctx.obj["config_path"]
 
+    # If no specific source is selected, sync all
+    sync_all = not (rss or market or podcast)
+    if sync_all:
+        rss = market = podcast = True
+
     async def _sync() -> None:
-        # Load configuration
-        config = load_feeds_config(config_path)
-        feeds = get_all_feeds(config)
-        feed_settings = get_feed_settings(config)
         settings = Settings()
-
-        console.print(f"[blue]Syncing {len(feeds)} feeds...[/blue]")
-
-        # Fetch feeds
-        async with RSSProcessor(feeds, feed_settings) as processor:
-            articles, report = await processor.fetch_all_feeds()
-
-        # Display fetch results
-        _display_sync_report(report)
-
+        db = None
+        
         if dry_run:
-            console.print("[yellow]Dry run - skipping database storage[/yellow]")
-            return
-
-        if not articles:
-            console.print("[yellow]No articles to process[/yellow]")
-            return
-
-        # Initialize database
-        db = Database(settings.database_url)
-        await db.connect()
+            console.print("[yellow]Dry run enabled - no data will be stored[/yellow]")
+        
+        # Initialize DB if not dry-run
+        if not dry_run:
+            db = Database(settings.database_url)
+            await db.connect()
 
         try:
-            repo = ArticleRepository(db)
+            # --- RSS Sync ---
+            if rss:
+                config = load_feeds_config(config_path)
+                feeds = get_all_feeds(config)
+                feed_settings = get_feed_settings(config)
+                
+                console.print(f"\n[blue]Syncing {len(feeds)} RSS feeds...[/blue]")
+                async with RSSProcessor(feeds, feed_settings) as processor:
+                    articles, report = await processor.fetch_all_feeds()
+                _display_sync_report(report)
 
-            # Generate embeddings if requested
-            embeddings: list[list[float] | None] = [None] * len(articles)
+                if not dry_run and articles and db:
+                    repo = ArticleRepository(db)
+                    # Embeddings
+                    embeddings = [None] * len(articles)
+                    if not no_embeddings and settings.openai_api_key:
+                        console.print("[blue]Generating article embeddings...[/blue]")
+                        embedding_service = EmbeddingService(
+                            api_key=settings.openai_api_key,
+                            model=feed_settings.embedding_model,
+                        )
+                        texts = [a.text_for_embedding for a in articles]
+                        embeddings = await embedding_service.generate_batch(texts)
 
-            if not no_embeddings and settings.openai_api_key:
-                console.print("[blue]Generating embeddings...[/blue]")
-                embedding_service = EmbeddingService(
-                    api_key=settings.openai_api_key,
-                    model=feed_settings.embedding_model,
-                )
-                texts = [a.text_for_embedding for a in articles]
-                embeddings = await embedding_service.generate_batch(texts)
-                console.print(f"[green]Generated {len(embeddings)} embeddings[/green]")
+                    with console.status("[blue]Storing articles...[/blue]"):
+                        new_c, upd_c = 0, 0
+                        for art, emb in zip(articles, embeddings):
+                            _, is_new = await repo.upsert(art, emb)
+                            if is_new: new_c += 1
+                            else: upd_c += 1
+                        console.print(f"[green]Articles: {new_c} new, {upd_c} updated[/green]")
 
-            # Store articles
-            new_count = 0
-            updated_count = 0
+            # --- Market Sync ---
+            if market:
+                # TODO: Load symbols from config
+                symbols = ["AAPL", "GOOGL", "MSFT", "AMZN", "TSLA", "SPY", "QQQ", "BTC-USD", "ETH-USD"]
+                console.print(f"\n[blue]Syncing Market data for {len(symbols)} symbols...[/blue]")
+                
+                market_result = await sync_market_data(symbols)
+                if market_result.success:
+                    console.print(f"[green]Fetched {len(market_result.data)} data points[/green]")
+                    if not dry_run and market_result.data and db:
+                         market_repo = MarketRepository(db)
+                         with console.status("[blue]Storing market data...[/blue]"):
+                             count = await market_repo.upsert_batch(market_result.data)
+                             console.print(f"[green] stored {count} records[/green]")
+                else:
+                    console.print(f"[red]Market sync failed: {market_result.errors}[/red]")
 
-            with console.status("[blue]Storing articles...[/blue]"):
-                for article, embedding in zip(articles, embeddings):
-                    _, is_new = await repo.upsert(article, embedding)
-                    if is_new:
-                        new_count += 1
+            # --- Podcast Sync ---
+            if podcast:
+                if settings.p3_duckdb_path:
+                    console.print(f"\n[blue]Syncing Podcasts from P³...[/blue]")
+                    pod_result = await sync_podcast_data(settings.p3_duckdb_path)
+                    
+                    if pod_result.success:
+                        console.print(f"[green]Fetched {len(pod_result.episodes)} episodes[/green]")
+                        if not dry_run and pod_result.episodes and db:
+                            pod_repo = PodcastRepository(db)
+                            # Embeddings (optional, if model supports it and not disabled)
+                            # For now assuming embeddings might be generated here or skipped
+                            # Let's generate if API key present
+                            pod_embeddings = [None] * len(pod_result.episodes)
+                            if not no_embeddings and settings.openai_api_key:
+                                 console.print("[blue]Generating podcast embeddings...[/blue]")
+                                 emb_svc = EmbeddingService(settings.openai_api_key)
+                                 texts = [e.text_for_embedding for e in pod_result.episodes]
+                                 pod_embeddings = await emb_svc.generate_batch(texts)
+
+                            with console.status("[blue]Storing episodes...[/blue]"):
+                                count = 0
+                                for ep, emb in zip(pod_result.episodes, pod_embeddings):
+                                    await pod_repo.upsert(ep, emb)
+                                    count += 1
+                                console.print(f"[green]Stored {count} episodes[/green]")
                     else:
-                        updated_count += 1
-
-            console.print(
-                f"[green]Stored {new_count} new articles, "
-                f"updated {updated_count} existing[/green]"
-            )
+                         console.print(f"[red]Podcast sync failed: {pod_result.errors}[/red]")
+                else:
+                    console.print("[yellow]Skipping Podcast sync: p3_duckdb_path not set[/yellow]")
 
         finally:
-            await db.close()
+            if db:
+                await db.close()
 
     asyncio.run(_sync())
 
@@ -150,7 +204,11 @@ def status(ctx: click.Context) -> None:
     """Show system status."""
     from src.config import Settings, get_all_feeds, load_feeds_config
     from src.database import Database
-    from src.repositories import ArticleRepository
+    from src.repositories import (
+        ArticleRepository,
+        MarketRepository,
+        PodcastRepository,
+    )
 
     config_path = ctx.obj["config_path"]
 
@@ -180,22 +238,43 @@ def status(ctx: click.Context) -> None:
             await db.connect()
 
             try:
-                repo = ArticleRepository(db)
-                total_count = await repo.count()
-                sources = await repo.get_sources()
-                categories = await repo.get_categories()
+                # RSS Stats
+                article_repo = ArticleRepository(db)
+                total_articles = await article_repo.count()
+                sources = await article_repo.get_sources()
+                categories = await article_repo.get_categories()
+
+                # Market Stats
+                market_repo = MarketRepository(db)
+                total_market = await market_repo.count()
+                symbols = await market_repo.get_symbols()
+
+                # Podcast Stats
+                podcast_repo = PodcastRepository(db)
+                total_episodes = await podcast_repo.count()
+                podcasts = await podcast_repo.get_podcasts()
 
                 stats_table = Table(title="Database Statistics")
+                stats_table.add_column("Domain")
                 stats_table.add_column("Metric")
                 stats_table.add_column("Value")
 
-                stats_table.add_row("Total Articles", str(total_count))
-                stats_table.add_row("Sources", str(len(sources)))
-                stats_table.add_row("Categories", ", ".join(categories) or "None")
+                # RSS Rows
+                stats_table.add_row("RSS", "Total Articles", str(total_articles))
+                stats_table.add_row("RSS", "Sources", str(len(sources)))
+                stats_table.add_row("RSS", "Categories", str(len(categories)))
+                
+                # Market Rows
+                stats_table.add_row("Market", "Data Points", str(total_market))
+                stats_table.add_row("Market", "Symbols", ", ".join(symbols) or "None")
+
+                # Podcast Rows
+                stats_table.add_row("Podcast", "Episodes", str(total_episodes))
+                stats_table.add_row("Podcast", "Shows", str(len(podcasts)))
 
                 console.print(stats_table)
 
-                # Per-source breakdown
+                # Per-source breakdown (RSS)
                 if sources:
                     console.print()
                     source_table = Table(title="Articles by Source")
@@ -203,7 +282,7 @@ def status(ctx: click.Context) -> None:
                     source_table.add_column("Count")
 
                     for source in sources:
-                        count = await repo.count(source=source)
+                        count = await article_repo.count(source=source)
                         source_table.add_row(source, str(count))
 
                     console.print(source_table)
@@ -222,6 +301,7 @@ def status(ctx: click.Context) -> None:
 @click.option("--limit", "-n", default=10, help="Maximum results to return")
 @click.option("--category", "-c", help="Filter by category")
 @click.option("--semantic", "-s", is_flag=True, help="Use semantic search")
+@click.option("--podcasts", "-p", is_flag=True, help="Search podcasts only")
 @click.pass_context
 def search(
     ctx: click.Context,
@@ -229,12 +309,13 @@ def search(
     limit: int,
     category: str | None,
     semantic: bool,
+    podcasts: bool,
 ) -> None:
-    """Search articles in the knowledge base."""
+    """Search articles and podcasts in the knowledge base."""
     from src.config import Settings, get_feed_settings, load_feeds_config
     from src.database import Database
     from src.ingestion.embeddings import EmbeddingService
-    from src.repositories import ArticleRepository
+    from src.repositories import ArticleRepository, PodcastRepository
 
     config_path = ctx.obj["config_path"]
 
@@ -247,79 +328,93 @@ def search(
         await db.connect()
 
         try:
-            repo = ArticleRepository(db)
+            article_repo = ArticleRepository(db)
+            podcast_repo = PodcastRepository(db)
+
+            results_table = Table(title=f"Search Results for '{query}'")
+            results_table.add_column("Type", style="cyan")
+            results_table.add_column("Title", max_width=40)
+            results_table.add_column("Source", style="green")
+            results_table.add_column("Published")
+            results_table.add_column("Score", style="magenta")
 
             if semantic and settings.openai_api_key:
-                # Semantic search using embeddings
                 console.print("[blue]Performing semantic search...[/blue]")
                 embedding_service = EmbeddingService(
                     api_key=settings.openai_api_key,
                     model=feed_settings.embedding_model,
                 )
                 query_embedding = await embedding_service.generate(query)
-                results = await repo.find_similar(
-                    embedding=query_embedding,
-                    limit=limit,
-                    threshold=0.5,
-                )
-
-                if not results:
-                    console.print("[yellow]No matching articles found[/yellow]")
-                    return
-
-                table = Table(title=f"Semantic Search Results for '{query}'")
-                table.add_column("Title", max_width=50)
-                table.add_column("Source")
-                table.add_column("Similarity")
-                table.add_column("Published")
-
-                for article, similarity in results:
-                    published = (
-                        article.published.strftime("%Y-%m-%d")
-                        if article.published
-                        else "Unknown"
+                
+                # Search Articles
+                if not podcasts:
+                    art_results = await article_repo.find_similar(
+                        embedding=query_embedding,
+                        limit=limit,
+                        threshold=0.5,
                     )
-                    table.add_row(
-                        article.title[:50],
-                        article.source,
-                        f"{similarity:.2%}",
-                        published,
-                    )
+                    for art, score in art_results:
+                         results_table.add_row(
+                            "Article",
+                            art.title[:40],
+                            art.source,
+                            art.published.strftime("%Y-%m-%d") if art.published else "?",
+                            f"{score:.2%}"
+                        )
 
-                console.print(table)
+                # Search Podcasts
+                if podcasts or not category: # If category is set, skip podcasts (no category field)
+                    pod_results = await podcast_repo.search_similar(
+                        embedding=query_embedding,
+                        limit=limit,
+                        threshold=0.5
+                    )
+                    for pod, score in pod_results:
+                        results_table.add_row(
+                            "Podcast",
+                            pod.title[:40],
+                            pod.podcast_name,
+                            pod.published_date.strftime("%Y-%m-%d") if pod.published_date else "?",
+                            f"{score:.2%}"
+                        )
 
             else:
                 # Text search
-                articles = await repo.search_by_text(
-                    search_text=query,
-                    limit=limit,
-                    category=category,
-                )
-
-                if not articles:
-                    console.print("[yellow]No matching articles found[/yellow]")
-                    return
-
-                table = Table(title=f"Search Results for '{query}'")
-                table.add_column("Title", max_width=50)
-                table.add_column("Source")
-                table.add_column("Category")
-                table.add_column("Published")
-
-                for article in articles:
-                    published = (
-                        article.published.strftime("%Y-%m-%d")
-                        if article.published
-                        else "Unknown"
+                # Articles
+                if not podcasts:
+                    articles = await article_repo.search_by_text(
+                        search_text=query,
+                        limit=limit,
+                        category=category,
                     )
-                    table.add_row(
-                        article.title[:50],
-                        article.source,
-                        article.category or "",
-                        published,
-                    )
+                    for art in articles:
+                        results_table.add_row(
+                            "Article",
+                            art.title[:40],
+                            art.source,
+                            art.published.strftime("%Y-%m-%d") if art.published else "?",
+                            "-"
+                        )
 
-                console.print(table)
+                # Podcasts
+                if (podcasts or not category):
+                    episodes = await podcast_repo.search_by_text(
+                        search_text=query,
+                        limit=limit
+                    )
+                    for ep in episodes:
+                        results_table.add_row(
+                            "Podcast",
+                            ep.title[:40],
+                            ep.podcast_name,
+                            ep.published_date.strftime("%Y-%m-%d") if ep.published_date else "?",
+                            "-"
+                        )
+
+            if results_table.row_count > 0:
+                console.print(results_table)
+            else:
+                console.print("[yellow]No results found.[/yellow]")
 
         finally:
             await db.close()
