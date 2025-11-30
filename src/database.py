@@ -176,10 +176,62 @@ CREATE TABLE IF NOT EXISTS strava_tokens (
 );
 """
 
+MARKET_SCHEMA = """
+-- Market Data
+CREATE TABLE IF NOT EXISTS market_ohlcv (
+    id SERIAL PRIMARY KEY,
+    symbol TEXT NOT NULL,
+    date TIMESTAMPTZ NOT NULL,
+    open FLOAT NOT NULL,
+    high FLOAT NOT NULL,
+    low FLOAT NOT NULL,
+    close FLOAT NOT NULL,
+    volume BIGINT NOT NULL,
+    adjusted_close FLOAT,
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    updated_at TIMESTAMPTZ DEFAULT NOW(),
+    UNIQUE(symbol, date)
+);
+
+-- Index for market queries
+CREATE INDEX IF NOT EXISTS market_ohlcv_symbol_date_idx
+ON market_ohlcv (symbol, date DESC);
+"""
+
+PODCAST_SCHEMA = """
+-- Podcast Episodes
+CREATE TABLE IF NOT EXISTS podcast_episodes (
+    id SERIAL PRIMARY KEY,
+    external_id TEXT UNIQUE NOT NULL,
+    title TEXT NOT NULL,
+    podcast_name TEXT NOT NULL,
+    published TIMESTAMPTZ,
+    summary TEXT,
+    content TEXT,
+    duration_seconds INT,
+    url TEXT,
+    topics TEXT[],
+    entities TEXT[],
+    embedding vector(1536),
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- Index for vector similarity search on podcasts
+CREATE INDEX IF NOT EXISTS podcast_episodes_embedding_idx ON podcast_episodes
+USING ivfflat (embedding vector_cosine_ops) WITH (lists = 100);
+
+-- Index for podcast date queries
+CREATE INDEX IF NOT EXISTS podcast_episodes_published_idx
+ON podcast_episodes (published DESC);
+"""
+
 
 async def init_schema(db: Database) -> None:
     """Initialize database schema."""
     async with db.transaction() as conn:
         await conn.execute(ARTICLES_SCHEMA)
         await conn.execute(ACTIVITIES_SCHEMA)
+        await conn.execute(MARKET_SCHEMA)
+        await conn.execute(PODCAST_SCHEMA)
     logger.info("Database schema initialized")

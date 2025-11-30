@@ -6,7 +6,12 @@ import asyncpg
 import structlog
 
 from src.database import Database
-from src.models import Article, ArticleWithEmbedding
+from src.models import (
+    Article,
+    ArticleWithEmbedding,
+    MarketOHLCV,
+    PodcastEpisode,
+)
 
 logger = structlog.get_logger()
 
@@ -303,3 +308,200 @@ class DeduplicationService:
             ]
 
         return similar
+
+
+class MarketRepository:
+    """Repository for market data."""
+
+    def __init__(self, db: Database):
+        self.db = db
+
+    async def upsert_batch(self, data: list[MarketOHLCV]) -> int:
+        """
+        Insert or update a batch of market data points.
+        Returns the number of records inserted/updated.
+        """
+        if not data:
+            return 0
+
+        query = """
+        INSERT INTO market_ohlcv (
+            symbol, date, open, high, low, close, volume, adjusted_close
+        )
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+        ON CONFLICT (symbol, date) DO UPDATE SET
+            open = EXCLUDED.open,
+            high = EXCLUDED.high,
+            low = EXCLUDED.low,
+            close = EXCLUDED.close,
+            volume = EXCLUDED.volume,
+            adjusted_close = EXCLUDED.adjusted_close,
+            updated_at = NOW()
+        """
+
+        async with self.db.transaction() as conn:
+            # asyncpg execute_many is efficient for batches
+            await conn.executemany(
+                query,
+                [
+                    (
+                        d.symbol,
+                        d.date,
+                        d.open,
+                        d.high,
+                        d.low,
+                        d.close,
+                        d.volume,
+                        d.adjusted_close,
+                    )
+                    for d in data
+                ],
+            )
+            return len(data)
+
+    async def get_history(
+        self,
+        symbol: str,
+        limit: int = 30,
+    ) -> list[MarketOHLCV]:
+        """Get historical data for a symbol."""
+        query = """
+        SELECT symbol, date, open, high, low, close, volume, adjusted_close
+        FROM market_ohlcv
+        WHERE symbol = $1
+        ORDER BY date DESC
+        LIMIT $2
+        """
+        rows = await self.db.fetch(query, symbol, limit)
+        # Return in chronological order (oldest first) usually expected for charts/analysis,
+        # but query gets newest first. Let's reverse.
+        return [
+            MarketOHLCV(
+                symbol=row["symbol"],
+                date=row["date"],
+                open=row["open"],
+                high=row["high"],
+                low=row["low"],
+                close=row["close"],
+                volume=row["volume"],
+                adjusted_close=row["adjusted_close"],
+            )
+            for row in reversed(rows)
+        ]
+
+
+class PodcastRepository:
+    """Repository for podcast episodes."""
+
+    def __init__(self, db: Database):
+        self.db = db
+
+    async def upsert(
+        self,
+        episode: PodcastEpisode,
+        embedding: list[float] | None = None,
+    ) -> int:
+        """
+        Insert or update a podcast episode.
+        Returns the episode ID.
+        """
+        query = """
+        INSERT INTO podcast_episodes (
+            external_id, title, podcast_name, published,
+            summary, content, duration_seconds, url,
+            topics, entities, embedding
+        )
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+        ON CONFLICT (external_id) DO UPDATE SET
+            title = EXCLUDED.title,
+            summary = EXCLUDED.summary,
+            content = EXCLUDED.content,
+            topics = EXCLUDED.topics,
+            entities = EXCLUDED.entities,
+            updated_at = NOW()
+        RETURNING id
+        """
+        async with self.db.acquire() as conn:
+            episode_id = await conn.fetchval(
+                query,
+                episode.id,  # internal ID vs external ID naming convention?
+                             # Model has 'id' as string from source, which maps to external_id
+                episode.title,
+                episode.podcast_name,
+                episode.published_date,
+                episode.summary,
+                episode.content,
+                episode.duration_seconds,
+                episode.url,
+                episode.topics,
+                episode.entities,
+                embedding,
+            )
+            return episode_id
+
+    async def get_recent(
+        self,
+        limit: int = 10,
+        podcast_name: str | None = None,
+    ) -> list[PodcastEpisode]:
+        """Get recent episodes."""
+        conditions = ["1=1"]
+        params: list[Any] = []
+
+        if podcast_name:
+            conditions.append(f"podcast_name = ${len(params) + 1}")
+            params.append(podcast_name)
+
+        where_clause = " AND ".join(conditions)
+        query = f"""
+        SELECT external_id, title, podcast_name, published,
+               summary, content, duration_seconds, url,
+               topics, entities
+        FROM podcast_episodes
+        WHERE {where_clause}
+        ORDER BY published DESC
+        LIMIT ${len(params) + 1}
+        """
+        params.append(limit)
+
+        rows = await self.db.fetch(query, *params)
+        return [self._row_to_episode(row) for row in rows]
+
+    async def search_similar(
+        self,
+        embedding: list[float],
+        limit: int = 10,
+        threshold: float = 0.7,
+    ) -> list[tuple[PodcastEpisode, float]]:
+        """Find semantically similar episodes."""
+        query = """
+        SELECT external_id, title, podcast_name, published,
+               summary, content, duration_seconds, url,
+               topics, entities,
+               1 - (embedding <=> $1) as similarity
+        FROM podcast_episodes
+        WHERE embedding IS NOT NULL
+          AND 1 - (embedding <=> $1) >= $2
+        ORDER BY embedding <=> $1
+        LIMIT $3
+        """
+        rows = await self.db.fetch(query, embedding, threshold, limit)
+        return [
+            (self._row_to_episode(row), row["similarity"])
+            for row in rows
+        ]
+
+    def _row_to_episode(self, row: asyncpg.Record) -> PodcastEpisode:
+        """Convert database row to PodcastEpisode model."""
+        return PodcastEpisode(
+            id=row["external_id"],
+            title=row["title"],
+            podcast_name=row["podcast_name"],
+            published_date=row["published"],
+            summary=row["summary"],
+            content=row["content"],
+            duration_seconds=row["duration_seconds"],
+            url=row["url"],
+            topics=row["topics"] if row["topics"] else [],
+            entities=row["entities"] if row["entities"] else [],
+        )
