@@ -99,6 +99,7 @@ def sync(
     """Sync data from enabled sources."""
     from src.config import Settings, get_all_feeds, get_feed_settings, load_feeds_config
     from src.database import Database
+    from src.cache import Cache
     from src.ingestion.embeddings import EmbeddingService
     from src.ingestion.market_client import sync_market_data
     from src.ingestion.podcast_bridge import sync_podcast_data
@@ -119,6 +120,7 @@ def sync(
     async def _sync() -> None:
         settings = Settings()
         db = None
+        cache = None
         
         if dry_run:
             console.print("[yellow]Dry run enabled - no data will be stored[/yellow]")
@@ -127,6 +129,14 @@ def sync(
         if not dry_run:
             db = Database(settings.database_url)
             await db.connect()
+            
+            if settings.redis_url:
+                cache = Cache(settings.redis_url)
+                try:
+                    await cache.connect()
+                except Exception as e:
+                    console.print(f"[yellow]Redis connection failed: {e}. Caching disabled.[/yellow]")
+                    cache = None
 
         try:
             # --- RSS Sync ---
@@ -149,6 +159,7 @@ def sync(
                         embedding_service = EmbeddingService(
                             api_key=settings.openai_api_key,
                             model=feed_settings.embedding_model,
+                            cache=cache,
                         )
                         texts = [a.text_for_embedding for a in articles]
                         embeddings = await embedding_service.generate_batch(texts)
@@ -194,7 +205,7 @@ def sync(
                             pod_embeddings = [None] * len(pod_result.episodes)
                             if not no_embeddings and settings.openai_api_key:
                                  console.print("[blue]Generating podcast embeddings...[/blue]")
-                                 emb_svc = EmbeddingService(settings.openai_api_key)
+                                 emb_svc = EmbeddingService(settings.openai_api_key, cache=cache)
                                  texts = [e.text_for_embedding for e in pod_result.episodes]
                                  pod_embeddings = await emb_svc.generate_batch(texts)
 

@@ -6,6 +6,7 @@ from datetime import date, timedelta
 import structlog
 
 from src.config import Settings, get_all_feeds, get_feed_settings, load_feeds_config
+from src.cache import Cache
 from src.database import Database
 from src.fitness_repository import (
     ActivityRepository,
@@ -57,6 +58,15 @@ async def sync_rss_feeds() -> None:
         db = Database(settings.database_url)
         await db.connect()
         
+        cache = None
+        if settings.redis_url:
+            cache = Cache(settings.redis_url)
+            try:
+                await cache.connect()
+            except Exception as e:
+                logger.warning("Redis connection failed", error=str(e))
+                cache = None
+        
         try:
             repo = ArticleRepository(db)
             
@@ -67,6 +77,7 @@ async def sync_rss_feeds() -> None:
                 embedding_service = EmbeddingService(
                     api_key=settings.openai_api_key,
                     model=feed_settings.embedding_model,
+                    cache=cache,
                 )
                 texts = [a.text_for_embedding for a in articles]
                 embeddings = await embedding_service.generate_batch(texts)
@@ -81,6 +92,8 @@ async def sync_rss_feeds() -> None:
             
         finally:
             await db.close()
+            if cache:
+                await cache.close()
             
     except Exception as e:
         logger.error("RSS sync job failed", error=str(e))
@@ -142,6 +155,15 @@ async def sync_podcasts() -> None:
         db = Database(settings.database_url)
         await db.connect()
         
+        cache = None
+        if settings.redis_url:
+            cache = Cache(settings.redis_url)
+            try:
+                await cache.connect()
+            except Exception as e:
+                logger.warning("Redis connection failed", error=str(e))
+                cache = None
+        
         try:
             repo = PodcastRepository(db)
             
@@ -149,7 +171,10 @@ async def sync_podcasts() -> None:
             embeddings = [None] * len(pod_result.episodes)
             if settings.openai_api_key:
                 logger.info("Generating embeddings for podcasts")
-                embedding_service = EmbeddingService(api_key=settings.openai_api_key)
+                embedding_service = EmbeddingService(
+                    api_key=settings.openai_api_key,
+                    cache=cache,
+                )
                 texts = [e.text_for_embedding for e in pod_result.episodes]
                 embeddings = await embedding_service.generate_batch(texts)
             
@@ -162,6 +187,8 @@ async def sync_podcasts() -> None:
             
         finally:
             await db.close()
+            if cache:
+                await cache.close()
 
     except Exception as e:
         logger.error("Podcast sync job failed", error=str(e))
