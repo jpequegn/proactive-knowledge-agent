@@ -1,5 +1,16 @@
 """Structured world model with knowledge graph and temporal reasoning."""
 
+from src.world_model.correlation import (
+    Correlation,
+    CorrelationRepository,
+    CorrelationResult,
+    CorrelationService,
+    CorrelationStrength,
+    CorrelationType,
+    CrossSourceLink,
+    pearson_correlation,
+    spearman_correlation,
+)
 from src.world_model.entities import (
     AnyEntity,
     Company,
@@ -106,4 +117,14 @@ __all__ = [
     "TrendDirection",
     "TrendResult",
     "WhatsNewResult",
+    # Correlation
+    "Correlation",
+    "CorrelationRepository",
+    "CorrelationResult",
+    "CorrelationService",
+    "CorrelationStrength",
+    "CorrelationType",
+    "CrossSourceLink",
+    "pearson_correlation",
+    "spearman_correlation",
 ]
