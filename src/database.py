@@ -229,9 +229,12 @@ ON podcast_episodes (published DESC);
 
 async def init_schema(db: Database) -> None:
     """Initialize database schema."""
+    from src.world_model.schema import get_knowledge_graph_schema
+
     async with db.transaction() as conn:
         await conn.execute(ARTICLES_SCHEMA)
         await conn.execute(ACTIVITIES_SCHEMA)
         await conn.execute(MARKET_SCHEMA)
         await conn.execute(PODCAST_SCHEMA)
+        await conn.execute(get_knowledge_graph_schema())
     logger.info("Database schema initialized")
