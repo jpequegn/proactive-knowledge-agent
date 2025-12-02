@@ -13,6 +13,19 @@ from src.world_model.entities import (
     Technology,
     create_entity,
 )
+from src.world_model.extraction import (
+    EntityExtractor,
+    ExtractedEntity,
+    ExtractedRelationship,
+    ExtractionResult,
+    extracted_to_entity,
+    extracted_to_relationship,
+)
+from src.world_model.pipeline import (
+    EntityDisambiguator,
+    ExtractionPipeline,
+    PipelineStats,
+)
 from src.world_model.relationships import (
     EntityMention,
     EntityVersion,
@@ -27,18 +40,19 @@ from src.world_model.repository import (
     VersionRepository,
 )
 from src.world_model.schema import KNOWLEDGE_GRAPH_SCHEMA, get_knowledge_graph_schema
-from src.world_model.extraction import (
-    EntityExtractor,
-    ExtractionResult,
-    ExtractedEntity,
-    ExtractedRelationship,
-    extracted_to_entity,
-    extracted_to_relationship,
-)
-from src.world_model.pipeline import (
-    EntityDisambiguator,
-    ExtractionPipeline,
-    PipelineStats,
+from src.world_model.temporal import (
+    Anomaly,
+    AnomalyType,
+    ChangeEvent,
+    DecayFunction,
+    ExponentialDecay,
+    LinearDecay,
+    MentionStats,
+    StepDecay,
+    TemporalReasoningService,
+    TrendDirection,
+    TrendResult,
+    WhatsNewResult,
 )
 
 __all__ = [
@@ -79,4 +93,17 @@ __all__ = [
     "EntityDisambiguator",
     "ExtractionPipeline",
     "PipelineStats",
+    # Temporal Reasoning
+    "Anomaly",
+    "AnomalyType",
+    "ChangeEvent",
+    "DecayFunction",
+    "ExponentialDecay",
+    "LinearDecay",
+    "MentionStats",
+    "StepDecay",
+    "TemporalReasoningService",
+    "TrendDirection",
+    "TrendResult",
+    "WhatsNewResult",
 ]

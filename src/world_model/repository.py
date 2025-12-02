@@ -811,6 +811,87 @@ class VersionRepository:
             return None
         return self._row_to_version(row)
 
+    async def get_changes_since(
+        self,
+        since: datetime,
+        change_type: str | None = None,
+        limit: int = 100,
+    ) -> list[EntityVersion]:
+        """Get all version changes since a timestamp."""
+        conditions = ["created_at >= $1"]
+        params: list[Any] = [since]
+
+        if change_type:
+            conditions.append(f"change_type = ${len(params) + 1}")
+            params.append(change_type)
+
+        where_clause = " AND ".join(conditions)
+        query = f"""
+        SELECT id, entity_id, version, name, description, properties,
+               change_type, change_source, changed_fields,
+               valid_from, valid_until, created_at
+        FROM entity_versions
+        WHERE {where_clause}
+        ORDER BY created_at DESC
+        LIMIT ${len(params) + 1}
+        """
+        params.append(limit)
+
+        rows = await self.db.fetch(query, *params)
+        return [self._row_to_version(row) for row in rows]
+
+    async def get_version_count(
+        self,
+        entity_id: int,
+    ) -> int:
+        """Get total number of versions for an entity."""
+        return await self.db.fetchval(
+            "SELECT COUNT(*) FROM entity_versions WHERE entity_id = $1",
+            entity_id,
+        )
+
+    async def compare_versions(
+        self,
+        entity_id: int,
+        version_a: int,
+        version_b: int,
+    ) -> dict[str, tuple[Any, Any]]:
+        """
+        Compare two versions of an entity.
+        Returns dict of changed fields with (old_value, new_value).
+        """
+        query = """
+        SELECT version, name, description, properties
+        FROM entity_versions
+        WHERE entity_id = $1 AND version IN ($2, $3)
+        ORDER BY version
+        """
+        rows = await self.db.fetch(query, entity_id, version_a, version_b)
+
+        if len(rows) != 2:
+            return {}
+
+        old_row, new_row = rows[0], rows[1]
+        changes = {}
+
+        if old_row["name"] != new_row["name"]:
+            changes["name"] = (old_row["name"], new_row["name"])
+
+        if old_row["description"] != new_row["description"]:
+            changes["description"] = (old_row["description"], new_row["description"])
+
+        old_props = old_row["properties"] or {}
+        new_props = new_row["properties"] or {}
+
+        all_keys = set(old_props.keys()) | set(new_props.keys())
+        for key in all_keys:
+            old_val = old_props.get(key)
+            new_val = new_props.get(key)
+            if old_val != new_val:
+                changes[f"properties.{key}"] = (old_val, new_val)
+
+        return changes
+
     def _row_to_version(self, row: asyncpg.Record) -> EntityVersion:
         """Convert database row to EntityVersion model."""
         return EntityVersion(
