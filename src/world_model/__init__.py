@@ -27,6 +27,19 @@ from src.world_model.repository import (
     VersionRepository,
 )
 from src.world_model.schema import KNOWLEDGE_GRAPH_SCHEMA, get_knowledge_graph_schema
+from src.world_model.extraction import (
+    EntityExtractor,
+    ExtractionResult,
+    ExtractedEntity,
+    ExtractedRelationship,
+    extracted_to_entity,
+    extracted_to_relationship,
+)
+from src.world_model.pipeline import (
+    EntityDisambiguator,
+    ExtractionPipeline,
+    PipelineStats,
+)
 
 __all__ = [
     # Entity types
@@ -55,4 +68,15 @@ __all__ = [
     # Schema
     "KNOWLEDGE_GRAPH_SCHEMA",
     "get_knowledge_graph_schema",
+    # Extraction
+    "EntityExtractor",
+    "ExtractionResult",
+    "ExtractedEntity",
+    "ExtractedRelationship",
+    "extracted_to_entity",
+    "extracted_to_relationship",
+    # Pipeline
+    "EntityDisambiguator",
+    "ExtractionPipeline",
+    "PipelineStats",
 ]
