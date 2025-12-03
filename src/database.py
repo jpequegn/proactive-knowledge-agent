@@ -227,64 +227,14 @@ ON podcast_episodes (published DESC);
 """
 
 
-KNOWLEDGE_GRAPH_SCHEMA = """
--- Entities in the knowledge graph
-CREATE TABLE IF NOT EXISTS entities (
-    id UUID PRIMARY KEY,
-    name TEXT NOT NULL,
-    type TEXT NOT NULL,
-    description TEXT,
-    aliases TEXT[],
-    attributes JSONB DEFAULT '{}'::jsonb,
-    embedding vector(1536),
-    created_at TIMESTAMPTZ DEFAULT NOW(),
-    updated_at TIMESTAMPTZ DEFAULT NOW()
-);
-
--- Index for name lookups
-CREATE INDEX IF NOT EXISTS entities_name_idx ON entities (name);
-
--- Index for type filtering
-CREATE INDEX IF NOT EXISTS entities_type_idx ON entities (type);
-
--- Index for vector similarity search on entities
-CREATE INDEX IF NOT EXISTS entities_embedding_idx ON entities
-USING ivfflat (embedding vector_cosine_ops) WITH (lists = 100);
-
-
--- Relationships between entities
-CREATE TABLE IF NOT EXISTS relationships (
-    id UUID PRIMARY KEY,
-    source_entity_id UUID NOT NULL REFERENCES entities(id) ON DELETE CASCADE,
-    target_entity_id UUID NOT NULL REFERENCES entities(id) ON DELETE CASCADE,
-    type TEXT NOT NULL,
-    weight FLOAT DEFAULT 1.0,
-    attributes JSONB DEFAULT '{}'::jsonb,
-    created_at TIMESTAMPTZ DEFAULT NOW(),
-    updated_at TIMESTAMPTZ DEFAULT NOW()
-);
-
--- Index for source lookups (outgoing edges)
-CREATE INDEX IF NOT EXISTS relationships_source_idx ON relationships (source_entity_id);
-
--- Index for target lookups (incoming edges)
-CREATE INDEX IF NOT EXISTS relationships_target_idx ON relationships (target_entity_id);
-
--- Index for relationship type filtering
-CREATE INDEX IF NOT EXISTS relationships_type_idx ON relationships (type);
-
--- Ensure unique relationships of same type between two entities
-CREATE UNIQUE INDEX IF NOT EXISTS relationships_unique_idx 
-ON relationships (source_entity_id, target_entity_id, type);
-"""
-
-
 async def init_schema(db: Database) -> None:
     """Initialize database schema."""
+    from src.world_model.schema import get_knowledge_graph_schema
+
     async with db.transaction() as conn:
         await conn.execute(ARTICLES_SCHEMA)
         await conn.execute(ACTIVITIES_SCHEMA)
         await conn.execute(MARKET_SCHEMA)
         await conn.execute(PODCAST_SCHEMA)
-        await conn.execute(KNOWLEDGE_GRAPH_SCHEMA)
+        await conn.execute(get_knowledge_graph_schema())
     logger.info("Database schema initialized")
