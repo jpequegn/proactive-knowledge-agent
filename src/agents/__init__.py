@@ -10,6 +10,14 @@ from src.agents.base import (
     ProjectIdea,
     UserProfile,
 )
+from src.agents.fitness_agent import (
+    FitnessIntelligenceAgent,
+    FitnessInsightType,
+    GoalReadiness,
+    RecoveryRecommendation,
+    TrainingLoadAnalysis,
+    TrainingZone,
+)
 from src.agents.tech_agent import TechIntelligenceAgent
 
 __all__ = [
@@ -22,6 +30,13 @@ __all__ = [
     "InsightType",
     "ProjectIdea",
     "UserProfile",
-    # Agents
+    # Tech Agent
     "TechIntelligenceAgent",
+    # Fitness Agent
+    "FitnessIntelligenceAgent",
+    "FitnessInsightType",
+    "GoalReadiness",
+    "RecoveryRecommendation",
+    "TrainingLoadAnalysis",
+    "TrainingZone",
 ]
