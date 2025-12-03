@@ -3,7 +3,62 @@
 import hashlib
 from datetime import datetime
 
+from enum import Enum
+from typing import Any
+from uuid import UUID, uuid4
+
 from pydantic import BaseModel, Field, computed_field
+
+
+class EntityType(str, Enum):
+    """Types of entities in the knowledge graph."""
+
+    TECHNOLOGY = "technology"
+    COMPANY = "company"
+    PERSON = "person"
+    CONCEPT = "concept"
+    METRIC = "metric"
+    EVENT = "event"
+
+
+class RelationshipType(str, Enum):
+    """Types of relationships between entities."""
+
+    USED_BY = "used_by"
+    FOUNDED = "founded"
+    ANNOUNCED = "announced"
+    RELATES_TO = "relates_to"
+    IMPACTS = "impacts"
+
+
+class Entity(BaseModel):
+    """Node in the knowledge graph."""
+
+    id: UUID = Field(default_factory=uuid4)
+    name: str
+    type: EntityType
+    description: str | None = None
+    aliases: list[str] = Field(default_factory=list)
+    attributes: dict[str, Any] = Field(default_factory=dict)
+    created_at: datetime = Field(default_factory=datetime.now)
+    updated_at: datetime = Field(default_factory=datetime.now)
+
+    model_config = {"use_enum_values": True}
+
+
+class Relationship(BaseModel):
+    """Edge in the knowledge graph."""
+
+    id: UUID = Field(default_factory=uuid4)
+    source_entity_id: UUID
+    target_entity_id: UUID
+    type: RelationshipType
+    weight: float = 1.0
+    attributes: dict[str, Any] = Field(default_factory=dict)
+    created_at: datetime = Field(default_factory=datetime.now)
+    updated_at: datetime = Field(default_factory=datetime.now)
+
+    model_config = {"use_enum_values": True}
 
 
 class Article(BaseModel):

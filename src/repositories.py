@@ -5,15 +5,227 @@ from typing import Any
 import asyncpg
 import structlog
 
+from uuid import UUID
+import json
+
 from src.database import Database
 from src.models import (
     Article,
     ArticleWithEmbedding,
     MarketOHLCV,
     PodcastEpisode,
+    Entity,
+    Relationship,
+    EntityType,
+    RelationshipType,
 )
 
 logger = structlog.get_logger()
+
+
+class KnowledgeGraphRepository:
+    """Repository for knowledge graph operations."""
+
+    def __init__(self, db: Database):
+        self.db = db
+
+    async def upsert_entity(
+        self, entity: Entity, embedding: list[float] | None = None
+    ) -> UUID:
+        """
+        Insert or update an entity.
+        Returns the entity ID.
+        """
+        query = """
+        INSERT INTO entities (
+            id, name, type, description, aliases, attributes, embedding
+        )
+        VALUES ($1, $2, $3, $4, $5, $6, $7)
+        ON CONFLICT (id) DO UPDATE SET
+            name = EXCLUDED.name,
+            type = EXCLUDED.type,
+            description = EXCLUDED.description,
+            aliases = EXCLUDED.aliases,
+            attributes = EXCLUDED.attributes,
+            embedding = COALESCE($7, entities.embedding),
+            updated_at = NOW()
+        RETURNING id
+        """
+        async with self.db.acquire() as conn:
+            await conn.fetchval(
+                query,
+                entity.id,
+                entity.name,
+                entity.type,
+                entity.description,
+                entity.aliases,
+                json.dumps(entity.attributes),
+                embedding,
+            )
+            return entity.id
+
+    async def get_entity(self, entity_id: UUID) -> Entity | None:
+        """Get entity by ID."""
+        query = """
+        SELECT id, name, type, description, aliases, attributes
+        FROM entities WHERE id = $1
+        """
+        row = await self.db.fetchrow(query, entity_id)
+        if row is None:
+            return None
+        return self._row_to_entity(row)
+
+    async def find_entities_by_name(
+        self, name_query: str, limit: int = 10
+    ) -> list[Entity]:
+        """Find entities by name (fuzzy match)."""
+        query = """
+        SELECT id, name, type, description, aliases, attributes
+        FROM entities
+        WHERE name ILIKE $1 OR $1 = ANY(aliases)
+        LIMIT $2
+        """
+        rows = await self.db.fetch(query, f"%{name_query}%", limit)
+        return [self._row_to_entity(row) for row in rows]
+    
+    async def find_similar_entities(
+        self, embedding: list[float], limit: int = 10, threshold: float = 0.7
+    ) -> list[tuple[Entity, float]]:
+        """Find entities with similar embeddings."""
+        query = """
+        SELECT id, name, type, description, aliases, attributes,
+               1 - (embedding <=> $1) as similarity
+        FROM entities
+        WHERE embedding IS NOT NULL
+          AND 1 - (embedding <=> $1) >= $2
+        ORDER BY embedding <=> $1
+        LIMIT $3
+        """
+        rows = await self.db.fetch(query, embedding, threshold, limit)
+        return [(self._row_to_entity(row), row["similarity"]) for row in rows]
+
+    async def create_relationship(self, relationship: Relationship) -> UUID:
+        """Create a relationship between entities."""
+        query = """
+        INSERT INTO relationships (
+            id, source_entity_id, target_entity_id, type, weight, attributes
+        )
+        VALUES ($1, $2, $3, $4, $5, $6)
+        ON CONFLICT (source_entity_id, target_entity_id, type) DO UPDATE SET
+            weight = EXCLUDED.weight,
+            attributes = EXCLUDED.attributes,
+            updated_at = NOW()
+        RETURNING id
+        """
+        async with self.db.acquire() as conn:
+            await conn.fetchval(
+                query,
+                relationship.id,
+                relationship.source_entity_id,
+                relationship.target_entity_id,
+                relationship.type,
+                relationship.weight,
+                json.dumps(relationship.attributes),
+            )
+            return relationship.id
+
+    async def get_related_entities(
+        self,
+        entity_id: UUID,
+        direction: str = "outgoing",
+        rel_type: RelationshipType | None = None,
+    ) -> list[tuple[Relationship, Entity]]:
+        """
+        Get entities related to the given entity.
+        direction: 'outgoing', 'incoming', or 'both'
+        """
+        conditions = []
+        params = [entity_id]
+        
+        if rel_type:
+            conditions.append(f"r.type = ${len(params) + 1}")
+            params.append(rel_type)
+
+        where_extra = " AND ".join(conditions)
+        if where_extra:
+            where_extra = " AND " + where_extra
+
+        results = []
+        
+        # Outgoing
+        if direction in ["outgoing", "both"]:
+            query = f"""
+            SELECT r.id as rel_id, r.source_entity_id, r.target_entity_id, r.type as rel_type, 
+                   r.weight, r.attributes as rel_attributes,
+                   e.id as entity_id, e.name, e.type as entity_type, e.description, 
+                   e.aliases, e.attributes as entity_attributes
+            FROM relationships r
+            JOIN entities e ON r.target_entity_id = e.id
+            WHERE r.source_entity_id = $1 {where_extra}
+            """
+            rows = await self.db.fetch(query, *params)
+            results.extend([self._row_to_rel_entity(row) for row in rows])
+
+        # Incoming
+        if direction in ["incoming", "both"]:
+            query = f"""
+            SELECT r.id as rel_id, r.source_entity_id, r.target_entity_id, r.type as rel_type, 
+                   r.weight, r.attributes as rel_attributes,
+                   e.id as entity_id, e.name, e.type as entity_type, e.description, 
+                   e.aliases, e.attributes as entity_attributes
+            FROM relationships r
+            JOIN entities e ON r.source_entity_id = e.id
+            WHERE r.target_entity_id = $1 {where_extra}
+            """
+            rows = await self.db.fetch(query, *params)
+            results.extend([self._row_to_rel_entity(row) for row in rows])
+
+        return results
+
+    def _row_to_entity(self, row: asyncpg.Record) -> Entity:
+        """Convert database row to Entity model."""
+        attributes = row["attributes"]
+        if isinstance(attributes, str):
+            attributes = json.loads(attributes)
+            
+        return Entity(
+            id=row["id"],
+            name=row["name"],
+            type=EntityType(row["type"]),
+            description=row["description"],
+            aliases=row["aliases"] if row["aliases"] else [],
+            attributes=attributes or {},
+        )
+
+    def _row_to_rel_entity(self, row: asyncpg.Record) -> tuple[Relationship, Entity]:
+        """Convert database row to (Relationship, Entity) tuple."""
+        rel_attrs = row["rel_attributes"]
+        if isinstance(rel_attrs, str):
+            rel_attrs = json.loads(rel_attrs)
+
+        ent_attrs = row["entity_attributes"]
+        if isinstance(ent_attrs, str):
+            ent_attrs = json.loads(ent_attrs)
+
+        rel = Relationship(
+            id=row["rel_id"],
+            source_entity_id=row["source_entity_id"],
+            target_entity_id=row["target_entity_id"],
+            type=RelationshipType(row["rel_type"]),
+            weight=row["weight"],
+            attributes=rel_attrs or {},
+        )
+        
+        entity = Entity(
+            id=row["entity_id"],
+            name=row["name"],
+            type=EntityType(row["entity_type"]),
+            description=row["description"],
+            aliases=row["aliases"] if row["aliases"] else [],
+            attributes=ent_attrs or {},
+        )
+        
+        return rel, entity
 
 
 class ArticleRepository:
