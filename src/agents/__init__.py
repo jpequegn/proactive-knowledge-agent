@@ -1,4 +1,4 @@
-"""Proactive intelligence agents for tech, fitness, and finance domains."""
+"""Proactive intelligence agents for tech, fitness, finance, and synthesis domains."""
 
 from src.agents.base import (
     AgentConfig,
@@ -10,14 +10,6 @@ from src.agents.base import (
     ProjectIdea,
     UserProfile,
 )
-from src.agents.fitness_agent import (
-    FitnessIntelligenceAgent,
-    FitnessInsightType,
-    GoalReadiness,
-    RecoveryRecommendation,
-    TrainingLoadAnalysis,
-    TrainingZone,
-)
 from src.agents.finance_agent import (
     FinanceIntelligenceAgent,
     FinanceInsightType,
@@ -28,6 +20,21 @@ from src.agents.finance_agent import (
     RiskLevel,
     SectorPerformance,
     VolatilityMetrics,
+)
+from src.agents.fitness_agent import (
+    FitnessIntelligenceAgent,
+    FitnessInsightType,
+    GoalReadiness,
+    RecoveryRecommendation,
+    TrainingLoadAnalysis,
+    TrainingZone,
+)
+from src.agents.synthesis_agent import (
+    CrossDomainPattern,
+    DomainSignal,
+    DomainState,
+    SynthesisAgent,
+    SynthesisInsightType,
 )
 from src.agents.tech_agent import TechIntelligenceAgent
 
@@ -60,4 +67,10 @@ __all__ = [
     "RecoveryRecommendation",
     "TrainingLoadAnalysis",
     "TrainingZone",
+    # Synthesis Agent
+    "CrossDomainPattern",
+    "DomainSignal",
+    "DomainState",
+    "SynthesisAgent",
+    "SynthesisInsightType",
 ]
