@@ -15,6 +15,7 @@ from src.outputs.alerts import (
     SlackChannel,
     SlackConfig,
 )
+from src.outputs.mcp_server import PKAMCPServer
 from src.outputs.reports import (
     DomainSection,
     ReportConfig,
@@ -48,4 +49,6 @@ __all__ = [
     "WeeklyReport",
     "WeeklyReportGenerator",
     "generate_weekly_report",
+    # MCP Server
+    "PKAMCPServer",
 ]
