@@ -1,13 +1,14 @@
 """Background scheduler for PKA."""
 
 import asyncio
-from typing import Any
 
 import structlog
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
+from apscheduler.triggers.cron import CronTrigger
 from apscheduler.triggers.interval import IntervalTrigger
 
 from src.daemon.jobs import (
+    generate_weekly_report,
     sync_fitness,
     sync_market,
     sync_podcasts,
@@ -62,6 +63,15 @@ class SchedulerService:
             replace_existing=True,
         )
 
+        # Weekly Report - Sunday at 6pm
+        self.scheduler.add_job(
+            generate_weekly_report,
+            trigger=CronTrigger(day_of_week="sun", hour=18),
+            id="generate_weekly_report",
+            name="Generate Weekly Report",
+            replace_existing=True,
+        )
+
     def start(self) -> None:
         """Start the scheduler."""
         logger.info("Starting background scheduler")
@@ -75,10 +85,11 @@ class SchedulerService:
     async def run_forever(self) -> None:
         """Run scheduler until interrupted."""
         self.start()
-        
-        # Run initial jobs immediately (asyncio.gather could be used but let's keep it simple)
+
+        # Run initial jobs immediately
+        # (asyncio.gather could be used but let's keep it simple)
         logger.info("Running initial jobs...")
-        # We trigger them once on startup for immediate feedback, 
+        # We trigger them once on startup for immediate feedback,
         # but wrapped in tasks so they don't block startup
         asyncio.create_task(sync_rss_feeds())
         asyncio.create_task(sync_market())
