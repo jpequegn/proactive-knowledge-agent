@@ -1,5 +1,20 @@
 """Report generation, alerts, and MCP integration."""
 
+from src.outputs.alerts import (
+    Alert,
+    AlertBatch,
+    AlertChannel,
+    AlertManager,
+    AlertManagerConfig,
+    AlertStatus,
+    ChannelConfig,
+    ConsoleChannel,
+    ConsoleConfig,
+    EmailChannel,
+    EmailConfig,
+    SlackChannel,
+    SlackConfig,
+)
 from src.outputs.reports import (
     DomainSection,
     ReportConfig,
@@ -11,6 +26,20 @@ from src.outputs.reports import (
 )
 
 __all__ = [
+    # Alert System
+    "Alert",
+    "AlertBatch",
+    "AlertChannel",
+    "AlertManager",
+    "AlertManagerConfig",
+    "AlertStatus",
+    "ChannelConfig",
+    "ConsoleChannel",
+    "ConsoleConfig",
+    "EmailChannel",
+    "EmailConfig",
+    "SlackChannel",
+    "SlackConfig",
     # Report Generation
     "DomainSection",
     "ReportConfig",
