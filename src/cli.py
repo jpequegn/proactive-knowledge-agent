@@ -1,4 +1,14 @@
-"""CLI for Proactive Knowledge Agent."""
+"""CLI for Proactive Knowledge Agent.
+
+Complete CLI for PKA with commands for:
+- Database initialization
+- Daemon management
+- Data synchronization
+- Search and queries
+- Reports and alerts
+- Entity exploration
+- Fitness tracking
+"""
 
 from __future__ import annotations
 
@@ -12,12 +22,54 @@ from urllib.parse import parse_qs, urlparse
 
 import click
 from rich.console import Console
+from rich.panel import Panel
 from rich.table import Table
+from rich.text import Text
 
 if TYPE_CHECKING:
     from src.models import SyncReport
 
 console = Console()
+
+
+# ============================================================================
+# Rich Formatting Helpers
+# ============================================================================
+
+
+def format_level_badge(level: str) -> Text:
+    """Format alert level as colored badge."""
+    colors = {
+        "info": "blue",
+        "watch": "yellow",
+        "action": "magenta",
+        "urgent": "red bold",
+    }
+    color = colors.get(level.lower(), "white")
+    return Text(f"[{level.upper()}]", style=color)
+
+
+def format_domain_badge(domain: str) -> Text:
+    """Format domain as colored badge."""
+    colors = {
+        "tech": "cyan",
+        "fitness": "green",
+        "finance": "yellow",
+        "general": "white",
+    }
+    color = colors.get(domain.lower(), "white")
+    return Text(domain.upper(), style=color)
+
+
+def format_trend_arrow(direction: str) -> str:
+    """Format trend direction as arrow."""
+    arrows = {
+        "rising": "[green]↑[/green]",
+        "falling": "[red]↓[/red]",
+        "stable": "[yellow]→[/yellow]",
+        "new": "[cyan]★[/cyan]",
+    }
+    return arrows.get(direction.lower(), "?")
 
 
 @click.group()
@@ -60,17 +112,150 @@ def daemon() -> None:
     """Manage the background daemon process."""
 
 
+def _get_pid_file() -> Path:
+    """Get the path to the daemon PID file."""
+    return Path.home() / ".pka" / "daemon.pid"
+
+
 @daemon.command("start")
-def daemon_start() -> None:
-    """Start the background scheduler."""
+@click.option("--background", "-b", is_flag=True, help="Run daemon in background")
+def daemon_start(background: bool) -> None:
+    """Start the background scheduler.
+
+    The daemon runs continuously, syncing data and generating insights.
+
+    Examples:
+
+        pka daemon start          # Run in foreground
+
+        pka daemon start -b       # Run in background
+    """
+    import os
+    import signal
+    import sys
+
     from src.daemon.scheduler import SchedulerService
 
+    pid_file = _get_pid_file()
+
+    # Check if already running
+    if pid_file.exists():
+        try:
+            pid = int(pid_file.read_text().strip())
+            # Check if process is actually running
+            os.kill(pid, 0)
+            console.print(f"[yellow]Daemon already running (PID: {pid})[/yellow]")
+            console.print("Use 'pka daemon stop' to stop it first.")
+            return
+        except (ProcessLookupError, ValueError):
+            # Stale PID file, remove it
+            pid_file.unlink()
+
+    if background:
+        # Fork to background
+        pid = os.fork()
+        if pid > 0:
+            # Parent process
+            pid_file.parent.mkdir(parents=True, exist_ok=True)
+            pid_file.write_text(str(pid))
+            console.print(f"[green]Daemon started in background (PID: {pid})[/green]")
+            console.print("Use 'pka daemon status' to check status.")
+            console.print("Use 'pka daemon stop' to stop.")
+            return
+        else:
+            # Child process - detach from terminal
+            os.setsid()
+            sys.stdin.close()
+            sys.stdout.close()
+            sys.stderr.close()
+    else:
+        # Write PID for foreground process too
+        pid_file.parent.mkdir(parents=True, exist_ok=True)
+        pid_file.write_text(str(os.getpid()))
+        console.print("[blue]Starting daemon (Ctrl+C to stop)...[/blue]")
+
     service = SchedulerService()
+
+    def cleanup(signum: int, frame: object) -> None:
+        if pid_file.exists():
+            pid_file.unlink()
+        raise KeyboardInterrupt
+
+    signal.signal(signal.SIGTERM, cleanup)
+    signal.signal(signal.SIGINT, cleanup)
+
     try:
-        # Using asyncio.run to handle the async run_forever loop
         asyncio.run(service.run_forever())
     except KeyboardInterrupt:
         pass
+    finally:
+        if pid_file.exists():
+            pid_file.unlink()
+        if not background:
+            console.print("\n[yellow]Daemon stopped.[/yellow]")
+
+
+@daemon.command("stop")
+def daemon_stop() -> None:
+    """Stop the running daemon.
+
+    Sends a termination signal to the background daemon process.
+
+    Examples:
+
+        pka daemon stop
+    """
+    import os
+    import signal
+
+    pid_file = _get_pid_file()
+
+    if not pid_file.exists():
+        console.print("[yellow]No daemon running (PID file not found)[/yellow]")
+        return
+
+    try:
+        pid = int(pid_file.read_text().strip())
+        os.kill(pid, signal.SIGTERM)
+        console.print(f"[green]Daemon stopped (PID: {pid})[/green]")
+        pid_file.unlink()
+    except ProcessLookupError:
+        console.print("[yellow]Daemon not running (stale PID file removed)[/yellow]")
+        pid_file.unlink()
+    except ValueError:
+        console.print("[red]Invalid PID file[/red]")
+        pid_file.unlink()
+    except PermissionError:
+        console.print("[red]Permission denied - cannot stop daemon[/red]")
+
+
+@daemon.command("status")
+def daemon_status() -> None:
+    """Check daemon status.
+
+    Shows whether the daemon is running and its process ID.
+
+    Examples:
+
+        pka daemon status
+    """
+    import os
+
+    pid_file = _get_pid_file()
+
+    if not pid_file.exists():
+        console.print("[yellow]Daemon not running[/yellow]")
+        return
+
+    try:
+        pid = int(pid_file.read_text().strip())
+        os.kill(pid, 0)  # Check if process exists
+        console.print(f"[green]Daemon running (PID: {pid})[/green]")
+    except ProcessLookupError:
+        console.print("[yellow]Daemon not running (stale PID file)[/yellow]")
+        pid_file.unlink()
+    except ValueError:
+        console.print("[red]Invalid PID file[/red]")
 
 
 @main.command()
@@ -97,9 +282,9 @@ def sync(
     podcast: bool,
 ) -> None:
     """Sync data from enabled sources."""
+    from src.cache import Cache
     from src.config import Settings, get_all_feeds, get_feed_settings, load_feeds_config
     from src.database import Database
-    from src.cache import Cache
     from src.ingestion.embeddings import EmbeddingService
     from src.ingestion.market_client import sync_market_data
     from src.ingestion.podcast_bridge import sync_podcast_data
@@ -121,21 +306,24 @@ def sync(
         settings = Settings()
         db = None
         cache = None
-        
+
         if dry_run:
             console.print("[yellow]Dry run enabled - no data will be stored[/yellow]")
-        
+
         # Initialize DB if not dry-run
         if not dry_run:
             db = Database(settings.database_url)
             await db.connect()
-            
+
             if settings.redis_url:
                 cache = Cache(settings.redis_url)
                 try:
                     await cache.connect()
                 except Exception as e:
-                    console.print(f"[yellow]Redis connection failed: {e}. Caching disabled.[/yellow]")
+                    console.print(
+                        f"[yellow]Redis connection failed: {e}. "
+                        "Caching disabled.[/yellow]"
+                    )
                     cache = None
 
         try:
@@ -144,7 +332,7 @@ def sync(
                 config = load_feeds_config(config_path)
                 feeds = get_all_feeds(config)
                 feed_settings = get_feed_settings(config)
-                
+
                 console.print(f"\n[blue]Syncing {len(feeds)} RSS feeds...[/blue]")
                 async with RSSProcessor(feeds, feed_settings) as processor:
                     articles, report = await processor.fetch_all_feeds()
@@ -168,33 +356,46 @@ def sync(
                         new_c, upd_c = 0, 0
                         for art, emb in zip(articles, embeddings):
                             _, is_new = await repo.upsert(art, emb)
-                            if is_new: new_c += 1
-                            else: upd_c += 1
-                        console.print(f"[green]Articles: {new_c} new, {upd_c} updated[/green]")
+                            if is_new:
+                                new_c += 1
+                            else:
+                                upd_c += 1
+                        console.print(
+                            f"[green]Articles: {new_c} new, {upd_c} updated[/green]"
+                        )
 
             # --- Market Sync ---
             if market:
                 # TODO: Load symbols from config
-                symbols = ["AAPL", "GOOGL", "MSFT", "AMZN", "TSLA", "SPY", "QQQ", "BTC-USD", "ETH-USD"]
-                console.print(f"\n[blue]Syncing Market data for {len(symbols)} symbols...[/blue]")
-                
+                symbols = [
+                    "AAPL", "GOOGL", "MSFT", "AMZN", "TSLA",
+                    "SPY", "QQQ", "BTC-USD", "ETH-USD",
+                ]
+                console.print(
+                    f"\n[blue]Syncing Market data for {len(symbols)} symbols...[/blue]"
+                )
+
                 market_result = await sync_market_data(symbols)
                 if market_result.success:
-                    console.print(f"[green]Fetched {len(market_result.data)} data points[/green]")
+                    console.print(
+                        f"[green]Fetched {len(market_result.data)} data points[/green]"
+                    )
                     if not dry_run and market_result.data and db:
-                         market_repo = MarketRepository(db)
-                         with console.status("[blue]Storing market data...[/blue]"):
-                             count = await market_repo.upsert_batch(market_result.data)
-                             console.print(f"[green] stored {count} records[/green]")
+                        market_repo = MarketRepository(db)
+                        with console.status("[blue]Storing market data...[/blue]"):
+                            count = await market_repo.upsert_batch(market_result.data)
+                            console.print(f"[green]Stored {count} records[/green]")
                 else:
-                    console.print(f"[red]Market sync failed: {market_result.errors}[/red]")
+                    console.print(
+                        f"[red]Market sync failed: {market_result.errors}[/red]"
+                    )
 
             # --- Podcast Sync ---
             if podcast:
                 if settings.p3_duckdb_path:
-                    console.print(f"\n[blue]Syncing Podcasts from P³...[/blue]")
+                    console.print("\n[blue]Syncing Podcasts from P³...[/blue]")
                     pod_result = await sync_podcast_data(settings.p3_duckdb_path)
-                    
+
                     if pod_result.success:
                         console.print(f"[green]Fetched {len(pod_result.episodes)} episodes[/green]")
                         if not dry_run and pod_result.episodes and db:
@@ -292,7 +493,7 @@ def status(ctx: click.Context) -> None:
                 stats_table.add_row("RSS", "Total Articles", str(total_articles))
                 stats_table.add_row("RSS", "Sources", str(len(sources)))
                 stats_table.add_row("RSS", "Categories", str(len(categories)))
-                
+
                 # Market Rows
                 stats_table.add_row("Market", "Data Points", str(total_market))
                 stats_table.add_row("Market", "Symbols", ", ".join(symbols) or "None")
@@ -374,7 +575,7 @@ def search(
                     model=feed_settings.embedding_model,
                 )
                 query_embedding = await embedding_service.generate(query)
-                
+
                 # Search Articles
                 if not podcasts:
                     art_results = await article_repo.find_similar(
@@ -449,6 +650,425 @@ def search(
             await db.close()
 
     asyncio.run(_search())
+
+
+# =============================================================================
+# Report Commands
+# =============================================================================
+
+
+@main.command()
+@click.argument("report_type", default="weekly", type=click.Choice(["weekly", "daily"]))
+@click.option("--output", "-o", type=click.Path(path_type=Path), help="Output directory")
+@click.option("--no-archive", is_flag=True, help="Don't archive the report")
+@click.option("--view", is_flag=True, help="Open report in browser after generation")
+@click.pass_context
+def report(
+    ctx: click.Context,
+    report_type: str,
+    output: Path | None,
+    no_archive: bool,
+    view: bool,
+) -> None:
+    """Generate an intelligence report.
+
+    Generates a comprehensive report combining insights from all domain agents.
+    Reports are saved in Markdown format.
+
+    Examples:
+
+        pka report              # Generate weekly report
+
+        pka report daily        # Generate daily report
+
+        pka report --view       # Generate and open in browser
+    """
+    from src.agents import AgentReport, AlertLevel, Insight, InsightType
+    from src.config import Settings
+    from src.database import Database
+    from src.outputs.reports import ReportConfig, WeeklyReportGenerator
+    from src.world_model import Domain, EntityRepository, TemporalReasoningService
+
+    async def _generate_report() -> None:
+        settings = Settings()
+        db = Database(settings.database_url)
+        await db.connect()
+
+        try:
+            console.print(f"[blue]Generating {report_type} report...[/blue]")
+
+            # Set up report configuration
+            config = ReportConfig()
+            if output:
+                config.output_dir = output
+                config.archive_dir = output / "archive"
+
+            # Get data from services
+            entity_repo = EntityRepository(db)
+            temporal_service = TemporalReasoningService(db)
+
+            # Build agent reports for each domain
+            agent_reports: dict[Domain, AgentReport] = {}
+
+            for domain in [Domain.TECH, Domain.FITNESS, Domain.FINANCE]:
+                console.print(f"  Analyzing {domain.value} domain...")
+
+                # Get trends
+                trends = await temporal_service.analyze_trends(
+                    domain=domain,
+                    period_days=7 if report_type == "weekly" else 1,
+                    limit=10,
+                )
+
+                # Get entities
+                entities = await entity_repo.find_by_domain(domain, limit=20)
+
+                # Generate insights from trends
+                insights = []
+                for trend in trends[:5]:
+                    insight = Insight(
+                        insight_type=InsightType.TREND_CHANGE,
+                        title=f"{trend.entity_name} is {trend.direction.value}",
+                        description=(
+                            f"{trend.entity_name} has "
+                            f"{'increased' if trend.change_ratio > 0 else 'decreased'} "
+                            f"by {abs(trend.change_ratio) * 100:.0f}% "
+                            f"over the past {trend.period_days} days."
+                        ),
+                        level=AlertLevel.WATCH,
+                        confidence=trend.confidence,
+                        relevance_score=0.8,
+                        entity_names=[trend.entity_name],
+                    )
+                    insights.append(insight)
+
+                agent_reports[domain] = AgentReport(
+                    domain=domain,
+                    insights=insights,
+                    trends_analyzed=len(trends),
+                    entities_scanned=len(entities),
+                    alerts_generated=len([i for i in insights if i.level != AlertLevel.INFO]),
+                )
+
+            # Generate report
+            generator = WeeklyReportGenerator(config)
+            weekly_report = generator.generate_report(
+                agent_reports,
+                period_days=7 if report_type == "weekly" else 1,
+            )
+
+            # Save report
+            if no_archive:
+                output_path = generator.save_report(weekly_report)
+            else:
+                output_path, _ = generator.save_and_archive(weekly_report)
+
+            console.print(f"\n[green]Report generated:[/green] {output_path}")
+
+            # Display summary
+            console.print(Panel(
+                weekly_report.executive_summary,
+                title="Executive Summary",
+                border_style="blue",
+            ))
+
+            console.print("\n[bold]Statistics:[/bold]")
+            console.print(f"  Total Insights: {weekly_report.total_insights}")
+            console.print(f"  Urgent: {weekly_report.urgent_count}")
+            console.print(f"  Action Items: {weekly_report.action_count}")
+
+            # Open in browser if requested
+            if view:
+                import webbrowser
+                webbrowser.open(f"file://{output_path.absolute()}")
+
+        finally:
+            await db.close()
+
+    asyncio.run(_generate_report())
+
+
+# =============================================================================
+# Alerts Commands
+# =============================================================================
+
+
+@main.command()
+@click.option(
+    "--level", "-l",
+    type=click.Choice(["info", "watch", "action", "urgent"]),
+    help="Filter by minimum alert level",
+)
+@click.option("--limit", "-n", default=20, help="Maximum alerts to show")
+@click.option("--acknowledge", "-a", type=str, help="Acknowledge alert by ID")
+@click.option("--snooze", "-s", type=str, help="Snooze alert by ID (hours)")
+@click.pass_context
+def alerts(
+    ctx: click.Context,
+    level: str | None,
+    limit: int,
+    acknowledge: str | None,
+    snooze: str | None,
+) -> None:
+    """Show and manage pending alerts.
+
+    Displays alerts from the PKA system that require attention.
+    Supports filtering by level and acknowledging/snoozing alerts.
+
+    Examples:
+
+        pka alerts                  # Show all pending alerts
+
+        pka alerts -l action        # Show only ACTION and URGENT
+
+        pka alerts -a alert_123     # Acknowledge an alert
+
+        pka alerts -s alert_123:2   # Snooze for 2 hours
+    """
+    from src.agents import AlertLevel
+    from src.outputs.alerts import AlertManager, AlertManagerConfig
+
+    # Create alert manager (in-memory for now)
+    manager = AlertManager(AlertManagerConfig())
+
+    # Handle acknowledge
+    if acknowledge:
+        success = manager.acknowledge_alert(acknowledge)
+        if success:
+            console.print(f"[green]Alert {acknowledge} acknowledged[/green]")
+        else:
+            console.print(f"[red]Alert {acknowledge} not found[/red]")
+        return
+
+    # Handle snooze
+    if snooze:
+        if ":" in snooze:
+            alert_id, hours = snooze.split(":", 1)
+            hours_int = int(hours)
+        else:
+            alert_id = snooze
+            hours_int = 1
+
+        success = manager.snooze_alert(alert_id, hours=hours_int)
+        if success:
+            console.print(f"[green]Alert {alert_id} snoozed for {hours_int} hour(s)[/green]")
+        else:
+            console.print(f"[red]Alert {alert_id} not found[/red]")
+        return
+
+    # Get pending alerts
+    pending_alerts = manager.get_pending_alerts()
+
+    # Filter by level if specified
+    if level:
+        level_priority = {
+            "info": 0, "watch": 1, "action": 2, "urgent": 3,
+        }
+        min_priority = level_priority.get(level, 0)
+        pending_alerts = [
+            a for a in pending_alerts
+            if level_priority.get(a.level.value, 0) >= min_priority
+        ]
+
+    # Apply limit
+    pending_alerts = pending_alerts[:limit]
+
+    if not pending_alerts:
+        console.print("[green]No pending alerts.[/green]")
+        return
+
+    # Display alerts
+    console.print(f"\n[bold]Pending Alerts ({len(pending_alerts)})[/bold]\n")
+
+    for alert in pending_alerts:
+        level_color = {
+            AlertLevel.INFO: "blue",
+            AlertLevel.WATCH: "yellow",
+            AlertLevel.ACTION: "magenta",
+            AlertLevel.URGENT: "red",
+        }.get(alert.level, "white")
+
+        console.print(Panel(
+            f"[bold]{alert.title}[/bold]\n\n"
+            f"{alert.description}\n\n"
+            f"[dim]Source: {alert.source} | Created: {alert.created_at.strftime('%Y-%m-%d %H:%M')}[/dim]",
+            title=f"[{level_color}][{alert.level.value.upper()}][/{level_color}] {alert.alert_id}",
+            border_style=level_color,
+        ))
+
+    # Show stats
+    stats = manager.get_stats()
+    console.print(f"\n[dim]Total: {stats['total_alerts']} | "
+                  f"Pending: {stats['pending_count']} | "
+                  f"Actionable: {stats['actionable_count']}[/dim]")
+
+
+# =============================================================================
+# Entity Commands
+# =============================================================================
+
+
+@main.command()
+@click.argument("name")
+@click.option(
+    "--type", "-t", "entity_type",
+    type=click.Choice(["technology", "company", "person", "concept", "metric", "event"]),
+    help="Filter by entity type",
+)
+@click.option("--trends", is_flag=True, help="Show trend analysis")
+@click.option("--related", is_flag=True, help="Show related entities")
+@click.pass_context
+def entity(
+    ctx: click.Context,
+    name: str,
+    entity_type: str | None,
+    trends: bool,
+    related: bool,
+) -> None:
+    """Show details about a knowledge graph entity.
+
+    Displays comprehensive information about an entity including
+    metadata, trends, and related entities.
+
+    Examples:
+
+        pka entity Python               # Look up "Python"
+
+        pka entity "Claude AI" -t technology   # Specific type
+
+        pka entity Rust --trends        # Include trend data
+    """
+    from src.config import Settings
+    from src.database import Database
+    from src.world_model import (
+        EntityRepository,
+        EntityType,
+        RelationshipRepository,
+        TemporalReasoningService,
+    )
+
+    async def _show_entity() -> None:
+        settings = Settings()
+        db = Database(settings.database_url)
+        await db.connect()
+
+        try:
+            entity_repo = EntityRepository(db)
+            temporal_service = TemporalReasoningService(db)
+
+            # Search for entity
+            etype = EntityType(entity_type) if entity_type else None
+            entities = await entity_repo.search_by_name(
+                search_text=name,
+                limit=5,
+                entity_type=etype,
+            )
+
+            if not entities:
+                console.print(f"[yellow]Entity not found: {name}[/yellow]")
+                return
+
+            # Get best match
+            ent = next(
+                (e for e in entities if e.name.lower() == name.lower()),
+                entities[0],
+            )
+
+            # Display entity info
+            domain_color = {
+                "tech": "cyan",
+                "fitness": "green",
+                "finance": "yellow",
+            }.get(ent.domain.value, "white")
+
+            console.print(Panel(
+                f"[bold]{ent.name}[/bold]\n\n"
+                f"[dim]Type:[/dim] {ent.entity_type.value}\n"
+                f"[dim]Domain:[/dim] [{domain_color}]{ent.domain.value.upper()}[/{domain_color}]\n"
+                f"[dim]Description:[/dim] {ent.description or 'N/A'}\n\n"
+                f"[dim]Confidence:[/dim] {ent.confidence:.0%}\n"
+                f"[dim]Mentions:[/dim] {ent.mention_count}\n"
+                f"[dim]First Seen:[/dim] {ent.first_seen.strftime('%Y-%m-%d') if ent.first_seen else 'N/A'}\n"
+                f"[dim]Last Seen:[/dim] {ent.last_seen.strftime('%Y-%m-%d') if ent.last_seen else 'N/A'}",
+                title=f"Entity: {ent.name}",
+                border_style=domain_color,
+            ))
+
+            # Show properties if any
+            if ent.properties:
+                props_table = Table(title="Properties")
+                props_table.add_column("Key")
+                props_table.add_column("Value")
+                for key, value in ent.properties.items():
+                    props_table.add_row(str(key), str(value))
+                console.print(props_table)
+
+            # Show trends if requested
+            if trends and ent.id:
+                console.print("\n[bold]Trend Analysis[/bold]")
+                trend_results = await temporal_service.analyze_trends(
+                    domain=ent.domain,
+                    period_days=7,
+                    limit=20,
+                )
+
+                entity_trend = next(
+                    (t for t in trend_results if t.entity_id == ent.id),
+                    None,
+                )
+
+                if entity_trend:
+                    arrow = format_trend_arrow(entity_trend.direction.value)
+                    console.print(
+                        f"  Direction: {arrow} {entity_trend.direction.value}\n"
+                        f"  Change: {entity_trend.change_ratio * 100:+.1f}%\n"
+                        f"  Current: {entity_trend.current_count} mentions\n"
+                        f"  Previous: {entity_trend.previous_count} mentions"
+                    )
+                else:
+                    console.print("  [dim]No trend data available[/dim]")
+
+            # Show related entities if requested
+            if related and ent.id:
+                console.print("\n[bold]Related Entities[/bold]")
+                rel_repo = RelationshipRepository(db)
+                relationships = await rel_repo.get_relationships_for_entity(ent.id, limit=10)
+
+                if relationships:
+                    rel_table = Table()
+                    rel_table.add_column("Relationship")
+                    rel_table.add_column("Entity")
+                    rel_table.add_column("Strength")
+
+                    for rel in relationships:
+                        # Get related entity name
+                        related_id = (
+                            rel.target_entity_id
+                            if rel.source_entity_id == ent.id
+                            else rel.source_entity_id
+                        )
+                        related_ent = await entity_repo.get_by_id(related_id)
+                        if related_ent:
+                            rel_table.add_row(
+                                rel.relationship_type.value,
+                                related_ent.name,
+                                f"{rel.strength:.0%}",
+                            )
+
+                    console.print(rel_table)
+                else:
+                    console.print("  [dim]No relationships found[/dim]")
+
+            # Show similar entities
+            if len(entities) > 1:
+                console.print("\n[dim]Similar entities:[/dim]")
+                for similar in entities[1:4]:
+                    console.print(f"  - {similar.name} ({similar.entity_type.value})")
+
+        finally:
+            await db.close()
+
+    asyncio.run(_show_entity())
 
 
 def _display_sync_report(report: SyncReport) -> None:
@@ -860,6 +1480,108 @@ def _display_activities_table(activities: list) -> None:
             )
 
     console.print(table)
+
+
+# =============================================================================
+# Shell Completion
+# =============================================================================
+
+
+@main.command()
+@click.argument(
+    "shell",
+    type=click.Choice(["bash", "zsh", "fish"]),
+    required=False,
+)
+def completion(shell: str | None) -> None:
+    """Generate shell completion script.
+
+    Outputs a shell completion script that can be sourced to enable
+    tab completion for all PKA commands.
+
+    Examples:
+
+        pka completion bash >> ~/.bashrc   # Bash
+
+        pka completion zsh >> ~/.zshrc     # Zsh
+
+        pka completion fish > ~/.config/fish/completions/pka.fish
+
+    \b
+    Without argument, auto-detects current shell:
+
+        eval "$(pka completion)"
+    """
+    import os
+
+    # Auto-detect shell if not specified
+    if shell is None:
+        shell_path = os.environ.get("SHELL", "")
+        if "zsh" in shell_path:
+            shell = "zsh"
+        elif "fish" in shell_path:
+            shell = "fish"
+        else:
+            shell = "bash"
+
+    # Get the completion script using click's built-in support
+    env_var = "_PKA_COMPLETE"
+
+    if shell == "bash":
+        script = f'''
+# PKA Bash completion
+eval "$({env_var}=bash_source pka)"
+'''
+    elif shell == "zsh":
+        script = f'''
+# PKA Zsh completion
+eval "$({env_var}=zsh_source pka)"
+'''
+    elif shell == "fish":
+        script = f'''
+# PKA Fish completion
+eval ({env_var}=fish_source pka)
+'''
+    else:
+        script = ""
+
+    click.echo(script.strip())
+
+
+@main.command()
+@click.option("--format", "-f", type=click.Choice(["text", "json"]), default="text")
+def version(format: str) -> None:
+    """Show PKA version and system information.
+
+    Examples:
+
+        pka version           # Human-readable output
+
+        pka version -f json   # JSON output for scripts
+    """
+    import platform
+    import sys
+    from importlib.metadata import version as pkg_version
+
+    try:
+        pka_version = pkg_version("proactive-knowledge-agent")
+    except Exception:
+        pka_version = "development"
+
+    info = {
+        "version": pka_version,
+        "python": sys.version.split()[0],
+        "platform": platform.system(),
+        "architecture": platform.machine(),
+    }
+
+    if format == "json":
+        import json
+        click.echo(json.dumps(info, indent=2))
+    else:
+        console.print(f"[bold]Proactive Knowledge Agent[/bold] v{info['version']}")
+        console.print(f"  Python: {info['python']}")
+        console.print(f"  Platform: {info['platform']} ({info['architecture']})")
 
 
 if __name__ == "__main__":
