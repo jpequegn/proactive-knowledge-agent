@@ -153,6 +153,116 @@ cp config/agents.yaml.example config/agents.yaml
 2. Configure your data sources in `config/feeds.yaml`
 3. Set up API keys (Strava, market data) in `.env`
 
+## CLI Reference
+
+PKA provides a comprehensive command-line interface for managing your personal knowledge system.
+
+### Core Commands
+
+```bash
+# Initialize database schema
+pka init
+
+# Check system status
+pka status
+
+# Sync all data sources
+pka sync
+
+# Sync specific sources only
+pka sync --rss          # RSS feeds only
+pka sync --market       # Market data only
+pka sync --podcast      # Podcasts only
+pka sync --dry-run      # Preview without storing
+```
+
+### Daemon Management
+
+```bash
+# Start the background daemon
+pka daemon start            # Run in foreground
+pka daemon start -b         # Run in background
+
+# Check daemon status
+pka daemon status
+
+# Stop the daemon
+pka daemon stop
+```
+
+### Search & Exploration
+
+```bash
+# Search the knowledge base
+pka search "machine learning"
+pka search "AI startups" --semantic    # Use vector similarity
+pka search "fitness" --podcasts        # Search podcasts only
+pka search "rust" --category tech      # Filter by category
+
+# Explore entities in the knowledge graph
+pka entity "OpenAI"
+pka entity "Claude" -t technology      # Filter by type
+pka entity "Python" --trends           # Include trend analysis
+pka entity "Rust" --related            # Show related entities
+```
+
+### Reports & Alerts
+
+```bash
+# Generate intelligence reports
+pka report                 # Weekly report (default)
+pka report daily           # Daily report
+pka report --view          # Open in browser after generation
+pka report -o ./reports    # Custom output directory
+
+# Manage alerts
+pka alerts                      # Show pending alerts
+pka alerts -l action            # Filter by level (info/watch/action/urgent)
+pka alerts -a alert_123         # Acknowledge an alert
+pka alerts -s alert_123:2       # Snooze for 2 hours
+```
+
+### Fitness Tracking (Strava)
+
+```bash
+# Authenticate with Strava
+pka fitness auth
+
+# Sync activities
+pka fitness sync              # Sync last 90 days
+pka fitness sync --days 30    # Sync last 30 days
+pka fitness sync --dry-run    # Preview without storing
+
+# Check fitness status
+pka fitness status
+```
+
+### Shell Completion
+
+Enable tab completion for all PKA commands:
+
+```bash
+# Bash
+pka completion bash >> ~/.bashrc
+
+# Zsh
+pka completion zsh >> ~/.zshrc
+
+# Fish
+pka completion fish > ~/.config/fish/completions/pka.fish
+
+# Auto-detect shell
+eval "$(pka completion)"
+```
+
+### Global Options
+
+```bash
+pka --config /path/to/feeds.yaml <command>   # Use custom config
+pka version                                   # Show version info
+pka version -f json                           # JSON output
+```
+
 ## Development Phases
 
 ### Phase 1: Multi-Source Ingestion (Weeks 1-2)
